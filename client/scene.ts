@@ -7,6 +7,7 @@ import { uid, withParam, num } from './semantic/types'
 import { getGenerator } from './generators/registry'
 import { setRimProfiles, clearRimProfiles } from './generators/rim'
 import { wheelDims } from './generators/tire'
+import { solve } from './semantic/constraints'
 import type { Vec2 } from './sketch/stroke'
 import type { Viewport } from './viewport/viewport'
 
@@ -19,8 +20,9 @@ export class Scene {
   }
 
   add(obj: SemanticObject): void {
-    this.objects.push(obj)
-    this.viewport.upsert(obj)
+    const solved = { ...obj, params: solve(obj.type, obj.params) }
+    this.objects.push(solved)
+    this.viewport.upsert(solved)
   }
 
   remove(id: string): void {
@@ -31,12 +33,12 @@ export class Scene {
     this.viewport.remove(id)
   }
 
-  // Immutable param update -> regenerate that object's mesh.
+  // Immutable param update -> re-solve constraints -> regenerate that object's mesh.
   updateParam(id: string, key: string, value: Param['value']): void {
     const idx = this.objects.findIndex((o) => o.id === id)
     if (idx < 0) return
     const obj = this.objects[idx]
-    const next = { ...obj, params: withParam(obj.params, key, value) }
+    const next = { ...obj, params: solve(obj.type, withParam(obj.params, key, value)) }
     this.objects[idx] = next
     this.viewport.upsert(next)
   }
@@ -48,6 +50,25 @@ export class Scene {
       type: 'tire',
       label: 'Tire',
       params: getGenerator('tire').defaultParams(),
+      transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] }
+    }
+    this.add(tire)
+    return tire
+  }
+
+  // ----- Object Promotion: a drawn circle BECOMES an editable Wheel -----
+  // radiusWorld = the radius of the circle the user drew, in world metres.
+  promoteToWheel(radiusWorld: number): SemanticObject {
+    const params = getGenerator('tire').defaultParams()
+    // Seed the driver `radius` from the drawing; clamp to the param's range.
+    const rp = params['radius']
+    const r = Math.max(rp.min ?? 0.2, Math.min(rp.max ?? 1.5, radiusWorld))
+    params['radius'] = { ...rp, value: Number(r.toFixed(3)) }
+    const tire: SemanticObject = {
+      id: uid('tire'),
+      type: 'tire',
+      label: 'Wheel',
+      params,
       transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] }
     }
     this.add(tire)

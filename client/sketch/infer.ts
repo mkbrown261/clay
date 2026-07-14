@@ -41,6 +41,56 @@ function roundness(pts: Vec2[]): number {
   return circle > 0 ? area / circle : 0
 }
 
+// Fit a circle to a loop: centroid + mean radius + how circular (0..1).
+export interface CircleFit {
+  cx: number
+  cy: number
+  radius: number
+  circularity: number // 1 = perfect circle
+}
+export function fitCircle(pts: Vec2[]): CircleFit {
+  let cx = 0
+  let cy = 0
+  for (const [x, y] of pts) { cx += x; cy += y }
+  cx /= pts.length
+  cy /= pts.length
+  let mean = 0
+  const radii: number[] = []
+  for (const [x, y] of pts) {
+    const r = Math.hypot(x - cx, y - cy)
+    radii.push(r)
+    mean += r
+  }
+  mean /= radii.length
+  // circularity = 1 - (stddev/mean), clamped.
+  let varSum = 0
+  for (const r of radii) varSum += (r - mean) * (r - mean)
+  const std = Math.sqrt(varSum / radii.length)
+  const circularity = mean > 0 ? Math.max(0, 1 - std / mean) : 0
+  return { cx, cy, radius: mean, circularity }
+}
+
+// Top-level "what did you draw?" for the BLANK CANVAS: is it a wheel?
+export interface CanvasGuess {
+  type: 'wheel' | 'unknown'
+  label: string
+  confidence: number // 0..1
+  radius: number // world metres (from the fit)
+  center: [number, number]
+}
+export function inferCanvas(profile: Vec2[]): CanvasGuess {
+  if (profile.length < 6) {
+    return { type: 'unknown', label: 'Unknown', confidence: 0.2, radius: 0.4, center: [0, 0] }
+  }
+  const fit = fitCircle(profile)
+  // A round closed loop = a wheel. Confidence tracks circularity.
+  if (fit.circularity > 0.72) {
+    const conf = Math.min(0.99, 0.6 + fit.circularity * 0.4)
+    return { type: 'wheel', label: 'Wheel', confidence: conf, radius: fit.radius, center: [fit.cx, fit.cy] }
+  }
+  return { type: 'unknown', label: 'Unknown', confidence: 0.35 + fit.circularity * 0.3, radius: fit.radius, center: [fit.cx, fit.cy] }
+}
+
 export function inferShape(profile: Vec2[]): Guess {
   if (profile.length < 3) {
     return { label: 'stroke', hint: 'Draw a closed shape for a spoke.', suggestRadialRepeat: false }

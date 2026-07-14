@@ -1,0 +1,117 @@
+// Clay — Constraint Solver.
+// "Stop thinking Wheel Generator. Think Constraint Solver."
+// Drivers are the few real inputs the user edits (radius, width, aspect...).
+// Derived values (outer diameter, circumference, sidewall, mass, tread count...)
+// are COMPUTED from the drivers. Change one driver -> everything downstream
+// recomputes. AI (and drag handles) change RELATIONSHIPS, never guess numbers.
+//
+// A ConstraintSet is: (1) the derive functions, and (2) the affects-graph so
+// every parameter literally knows what it affects.
+
+import type { ParamMap, SemanticType } from './types'
+import { num, str } from './types'
+
+// A single derived rule: given the current params, return the derived value.
+export interface DerivedRule {
+  key: string
+  label: string
+  unit?: 'm' | 'cm' | 'deg' | ''
+  group?: string
+  compute: (p: ParamMap) => number
+}
+
+export interface ConstraintSet {
+  // For each DRIVER key, which keys does changing it affect? (the graph)
+  affects: Record<string, string[]>
+  // Derived params (computed, read-only) appended to the object's params.
+  derived: DerivedRule[]
+}
+
+// Rubber density kg/m^3 (approx, for a believable mass read-out).
+const RUBBER_DENSITY = 1100
+const METAL_DENSITY = 2700 // aluminium alloy rim
+
+// ---- WHEEL constraint set -----------------------------------------------------
+// Drivers: radius, width, aspect, treadDepth, treadCount, rubberType, wear.
+// Derived: outerDiameter, circumference, sidewall, seatRadius(rBead),
+//          contactWidth, approxMass, treadPitch, uvScale.
+export const WHEEL_CONSTRAINTS: ConstraintSet = {
+  affects: {
+    radius: ['outerDiameter', 'circumference', 'seatRadius', 'sidewall', 'approxMass', 'uvScale', 'treadPitch'],
+    width: ['contactWidth', 'sidewall', 'seatRadius', 'approxMass'],
+    aspect: ['sidewall', 'seatRadius'],
+    treadDepth: ['approxMass'],
+    treadCount: ['treadPitch'],
+    rubberType: ['approxMass'],
+    wear: ['approxMass']
+  },
+  derived: [
+    { key: 'outerDiameter', label: 'Outer Diameter', unit: 'm', group: 'Derived', compute: (p) => num(p, 'radius') * 2 },
+    { key: 'circumference', label: 'Circumference', unit: 'm', group: 'Derived', compute: (p) => 2 * Math.PI * num(p, 'radius') },
+    { key: 'sidewall', label: 'Sidewall', unit: 'm', group: 'Derived', compute: (p) => num(p, 'width') * num(p, 'aspect') },
+    { key: 'seatRadius', label: 'Seat Radius', unit: 'm', group: 'Derived', compute: (p) => num(p, 'radius') - num(p, 'width') * num(p, 'aspect') },
+    { key: 'contactWidth', label: 'Contact Width', unit: 'm', group: 'Derived', compute: (p) => num(p, 'width') * 0.85 },
+    { key: 'treadPitch', label: 'Tread Pitch', unit: 'cm', group: 'Derived', compute: (p) => (2 * Math.PI * num(p, 'radius')) / Math.max(1, num(p, 'treadCount')) * 100 },
+    {
+      key: 'approxMass', label: 'Approx Mass', unit: '', group: 'Derived',
+      compute: (p) => {
+        const r = num(p, 'radius')
+        const w = num(p, 'width')
+        const seat = r - w * num(p, 'aspect')
+        // rubber annulus volume (tire) + a thin metal disc (rim) — rough but reactive.
+        const tireVol = Math.PI * (r * r - seat * seat) * w
+        const rimVol = Math.PI * seat * seat * (w * 0.15)
+        const wearMul = str(p, 'wear') === 'destroyed' ? 0.7 : str(p, 'wear') === 'used' ? 0.9 : 1
+        return (tireVol * RUBBER_DENSITY + rimVol * METAL_DENSITY) * wearMul
+      }
+    },
+    { key: 'uvScale', label: 'UV Scale', unit: '', group: 'Derived', compute: (p) => Number((2 * Math.PI * num(p, 'radius')).toFixed(2)) }
+  ]
+}
+
+const SETS: Partial<Record<SemanticType, ConstraintSet>> = {
+  wheel: WHEEL_CONSTRAINTS,
+  tire: WHEEL_CONSTRAINTS
+}
+
+export function constraintSetFor(type: SemanticType): ConstraintSet | undefined {
+  return SETS[type]
+}
+
+// Recompute all derived params for an object. Returns a NEW ParamMap with derived
+// entries present + up to date, and driver params annotated with `affects`.
+export function solve(type: SemanticType, params: ParamMap): ParamMap {
+  const set = constraintSetFor(type)
+  if (!set) return params
+  const out: ParamMap = { ...params }
+
+  // Annotate drivers with their affects-graph (so the UI can show "affects: …").
+  for (const [driver, deps] of Object.entries(set.affects)) {
+    if (out[driver]) out[driver] = { ...out[driver], affects: deps }
+  }
+
+  // Compute derived values.
+  for (const rule of set.derived) {
+    const value = rule.compute(params)
+    out[rule.key] = {
+      key: rule.key,
+      label: rule.label,
+      value: Number.isFinite(value) ? Number(value.toFixed(4)) : 0,
+      type: 'number',
+      unit: rule.unit,
+      group: rule.group ?? 'Derived',
+      derived: true
+    }
+  }
+  return out
+}
+
+// Human-friendly formatting for a derived value (mass in kg/g, etc.).
+export function formatDerived(key: string, value: number): string {
+  if (key === 'approxMass') {
+    return value >= 1 ? `${value.toFixed(2)} kg` : `${(value * 1000).toFixed(0)} g`
+  }
+  if (key === 'uvScale') return `×${value.toFixed(2)}`
+  if (key === 'treadPitch') return `${value.toFixed(2)} cm`
+  return `${value.toFixed(3)} m`
+}

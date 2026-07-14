@@ -1,5 +1,8 @@
-// Clay — client entry. Wires the multi-object Scene + viewport + contextual panel
-// + Sketch Engine (draw a rim) + export. The mesh is always DERIVED from ideas.
+// Clay — client entry. Blank canvas. You DRAW, not click.
+// Flow: empty stage -> draw a shape -> Clay: "I think this is a Wheel (98%)" ->
+// promote -> a live, editable Wheel appears -> hover shows blue handles ->
+// drag the outside/width/hub -> geometry + constraint-derived panel update live.
+// Then you can still Draw Rim on the wheel face. The object is always malleable.
 
 import { Viewport, type GizmoMode } from './viewport/viewport'
 import { registerGenerator, getGenerator } from './generators/registry'
@@ -10,8 +13,8 @@ import type { Param } from './semantic/types'
 import { renderPanel } from './ui/panel'
 import { exportGLB } from './export/glb'
 import { Scene } from './scene'
-import { SketchEngine } from './sketch/engine'
-import { inferShape } from './sketch/infer'
+import { SketchEngine, WHEEL_FACE, FRONT } from './sketch/engine'
+import { inferShape, inferCanvas } from './sketch/infer'
 import type { Vec2 } from './sketch/stroke'
 
 registerGenerator(TireGenerator)
@@ -19,6 +22,8 @@ registerGenerator(RimGenerator)
 
 const viewportEl = document.getElementById('viewport') as HTMLElement
 const panelEl = document.getElementById('panel') as HTMLElement
+const emptyEl = document.getElementById('empty-state') as HTMLElement
+const promoteEl = document.getElementById('promote') as HTMLElement
 const viewport = new Viewport(viewportEl)
 
 await initManifold()
@@ -26,38 +31,67 @@ await initManifold()
 const scene = new Scene(viewport)
 const sketch = new SketchEngine(viewportEl, viewport.camera, viewport.renderer)
 
-// Sketch session state (toggles live here).
+// session state
 let radialRepeat = true
 let repeatCount = 5
 let inferOn = true
-let freehandProfiles: Vec2[][] = [] // accumulated strokes in freehand mode
-let drawingRim = false
+let freehandProfiles: Vec2[][] = []
+let mode: 'idle' | 'draw-canvas' | 'draw-rim' = 'idle'
+let pendingRadius = 0.5
 
-// ---- Build the starting scene: a Tire substrate.
-const tire = scene.createTire()
-viewport.select(tire.id)
-
-function currentPanelObject() {
+// ---- live drag handles -> update param + panel ----
+viewport.onHandleDrag = (e) => {
   const id = viewport.selected
-  return (id && scene.get(id)) || scene.tire!
+  if (!id) return
+  scene.updateParam(id, e.key, clampToParam(id, e.key, e.value))
+  const obj = scene.get(id)
+  if (obj) viewport.attachHandles(obj)
+  refreshPanel() // panel updates WHILE dragging
+  // keep rim seated if present
+  if (scene.rim && obj?.type === 'tire') scene.applyRimDrawing(scene.tire!, [], { radialRepeat, repeatCount })
+}
+viewport.onHandleDragEnd = () => rebuildPanel()
+
+function clampToParam(id: string, key: string, v: number): number {
+  const p = scene.get(id)?.params[key]
+  if (!p) return v
+  const min = p.min ?? -Infinity
+  const max = p.max ?? Infinity
+  return Math.max(min, Math.min(max, v))
+}
+
+// selection -> panel + handles
+viewport.onSelect = (id) => {
+  const obj = (id && scene.get(id)) || null
+  viewport.attachHandles(obj)
+  rebuildPanel()
+}
+
+function currentObject() {
+  const id = viewport.selected
+  return (id && scene.get(id)) || scene.tire || null
 }
 
 function rebuildPanel() {
-  const obj = currentPanelObject()
+  const obj = currentObject()
+  if (!obj) {
+    panelEl.innerHTML = '<div class="panel-empty">Draw a shape to begin.</div>'
+    renderObjectList()
+    return
+  }
   renderPanel(panelEl, obj, (key: string, value: Param['value']) => {
     scene.updateParam(obj.id, key, value)
-    // If tire dims change, re-seat the rim so it never gaps.
-    if (obj.type === 'tire' && scene.rim) {
-      scene.applyRimDrawing(scene.tire!, [], { radialRepeat, repeatCount })
-      // note: profiles preserved inside store; empty array here just re-seats + regenerates
-    }
+    viewport.attachHandles(scene.get(obj.id)!)
+    if (obj.type === 'tire' && scene.rim) scene.applyRimDrawing(scene.tire!, [], { radialRepeat, repeatCount })
   })
   renderObjectList()
 }
 
-viewport.onSelect = () => rebuildPanel()
+// Lightweight panel value refresh during drag (rebuild is cheap enough here).
+function refreshPanel() {
+  rebuildPanel()
+}
 
-// ---- Object list (tire / rim) with select + remove.
 function renderObjectList() {
   const list = document.getElementById('object-list')
   if (!list) return
@@ -76,56 +110,99 @@ function renderObjectList() {
       del.addEventListener('click', (e) => {
         e.stopPropagation()
         scene.remove(o.id)
-        if (viewport.selected === o.id) viewport.select(scene.tire!.id)
+        if (viewport.selected === o.id && scene.tire) viewport.select(scene.tire.id)
         rebuildPanel()
       })
       row.appendChild(del)
     }
     list.appendChild(row)
   }
+  // toggle empty-state visibility
+  emptyEl.style.display = scene.objects.length === 0 ? 'flex' : 'none'
 }
 
-rebuildPanel()
-
-// ---- Sketch flow --------------------------------------------------------------
-const guessEl = document.getElementById('draw-guess')
-const drawControls = document.getElementById('draw-controls')
-
-function setDrawUI(active: boolean) {
-  drawingRim = active
-  document.getElementById('tool-draw')?.classList.toggle('active', active)
-  if (drawControls) drawControls.style.display = active ? 'flex' : 'none'
-  viewport.setInteractionEnabled(!active)
-  if (guessEl) guessEl.textContent = active ? 'Draw a spoke on the wheel face…' : ''
+// ===== BLANK CANVAS: draw a shape =====
+function beginCanvasDraw() {
+  mode = 'draw-canvas'
+  emptyEl.style.display = 'none'
+  hidePromote()
+  viewport.setInteractionEnabled(false)
+  document.getElementById('tool-draw')?.classList.add('active')
+  // Face the front plane so a screen-circle stays a true circle and maps 1:1
+  // onto the wheel's own plane (no perspective distortion of the sketch).
+  viewport.faceCamera(1.9, 400)
+  sketch.begin(FRONT(), (res) => {
+    viewport.setInteractionEnabled(true)
+    document.getElementById('tool-draw')?.classList.remove('active')
+    mode = 'idle'
+    if (res.profile.length < 6) { renderObjectList(); return }
+    const guess = inferCanvas(res.profile)
+    pendingRadius = guess.radius || 0.5
+    showPromote(guess)
+  })
 }
 
-function beginDraw() {
+function showPromote(guess: ReturnType<typeof inferCanvas>) {
+  const pct = Math.round(guess.confidence * 100)
+  const known = guess.type === 'wheel'
+  promoteEl.innerHTML = `
+    <div class="promote-card">
+      <div class="promote-title">Clay detected</div>
+      <div class="promote-guess">
+        <span class="promote-label">${guess.label}</span>
+        <span class="promote-conf ${known ? 'ok' : 'low'}">${pct}%</span>
+      </div>
+      <div class="promote-sub">${known ? 'Promote this drawing into a live, editable Wheel?' : 'Not confident. Promote as a Wheel anyway?'}</div>
+      <div class="promote-actions">
+        <button id="promote-yes" class="tool primary"><i class="fa-solid fa-check"></i> Promote to Wheel</button>
+        <button id="promote-no" class="tool"><i class="fa-solid fa-xmark"></i> Discard</button>
+      </div>
+    </div>`
+  promoteEl.style.display = 'flex'
+  document.getElementById('promote-yes')?.addEventListener('click', () => {
+    const tire = scene.promoteToWheel(pendingRadius)
+    hidePromote()
+    viewport.select(tire.id)
+    viewport.attachHandles(tire)
+    viewport.faceCamera(1.9, 500)
+    rebuildPanel()
+  })
+  document.getElementById('promote-no')?.addEventListener('click', () => {
+    hidePromote()
+    renderObjectList()
+  })
+}
+function hidePromote() { promoteEl.style.display = 'none' }
+
+// ===== DRAW RIM (on the wheel face) =====
+const guessEl = () => document.getElementById('draw-guess')
+const drawControls = () => document.getElementById('draw-controls')
+
+function beginRimDraw() {
   const t = scene.tire
   if (!t) return
+  mode = 'draw-rim'
   freehandProfiles = []
-  setDrawUI(true)
+  document.getElementById('tool-rim')?.classList.add('active')
+  const dc = drawControls(); if (dc) dc.style.display = 'flex'
+  viewport.setInteractionEnabled(false)
   viewport.faceCamera()
-  const planeZ = scene.tireFaceZ(t)
+  const g = guessEl(); if (g) g.textContent = 'Draw a spoke on the wheel face…'
+  const plane = WHEEL_FACE(scene.tireFaceZ(t))
   const loop = () => {
-    sketch.begin(planeZ, (result) => {
-      if (result.profile.length < 3) {
-        // too short — keep listening
-        if (drawingRim) loop()
-        return
-      }
+    sketch.begin(plane, (result) => {
+      if (result.profile.length < 3) { if (mode === 'draw-rim') loop(); return }
       if (inferOn) {
-        const g = inferShape(result.profile)
-        if (guessEl) guessEl.textContent = `Clay: I think this is a ${g.label}. ${g.hint}`
+        const gg = inferShape(result.profile)
+        const g2 = guessEl(); if (g2) g2.textContent = `Clay: I think this is a ${gg.label}. ${gg.hint}`
       }
       if (radialRepeat) {
-        // Draw ONE, repeat N. Finalize immediately.
         commitRim([result.profile])
       } else {
-        // Freehand: accumulate every stroke; "Finish" commits them all.
         freehandProfiles.push(result.profile)
-        if (guessEl) guessEl.textContent = `Freehand: ${freehandProfiles.length} stroke(s). Draw more or click Finish.`
-        commitRim(freehandProfiles, /*keepDrawing*/ true)
-        if (drawingRim) loop()
+        const g3 = guessEl(); if (g3) g3.textContent = `Freehand: ${freehandProfiles.length} stroke(s). Draw more or click Finish.`
+        commitRim(freehandProfiles, true)
+        if (mode === 'draw-rim') loop()
       }
     })
   }
@@ -137,21 +214,27 @@ function commitRim(profiles: Vec2[][], keepDrawing = false) {
   const rim = scene.applyRimDrawing(t, profiles, { radialRepeat, repeatCount })
   renderObjectList()
   if (!keepDrawing) {
-    endDraw()
+    endRimDraw()
     viewport.select(rim.id)
     rebuildPanel()
   }
 }
 
-function endDraw() {
+function endRimDraw() {
   sketch.cancel()
-  setDrawUI(false)
+  mode = 'idle'
+  document.getElementById('tool-rim')?.classList.remove('active')
+  const dc = drawControls(); if (dc) dc.style.display = 'none'
+  viewport.setInteractionEnabled(true)
 }
 
-// ---- Toolbar wiring -----------------------------------------------------------
+// ===== Toolbar wiring =====
 const bind = (id: string, fn: (e?: Event) => void) =>
   document.getElementById(id)?.addEventListener('click', fn)
 
+bind('tool-draw', () => (mode === 'draw-canvas' ? sketch.cancel() : beginCanvasDraw()))
+bind('empty-draw', () => beginCanvasDraw())
+bind('tool-rim', () => (mode === 'draw-rim' ? endRimDraw() : beginRimDraw()))
 bind('tool-move', () => setGizmo('translate'))
 bind('tool-rotate', () => setGizmo('rotate'))
 bind('tool-scale', () => setGizmo('scale'))
@@ -161,28 +244,19 @@ bind('tool-wire', () => {
   document.getElementById('tool-wire')?.classList.toggle('active', wire)
 })
 bind('tool-reset', () => {
-  if (scene.rim) scene.remove(scene.rim.id)
-  const t = scene.tire!
-  const dflt = getGenerator('tire').defaultParams()
-  for (const k of Object.keys(dflt)) scene.updateParam(t.id, k, dflt[k].value)
-  viewport.select(t.id)
+  for (const o of [...scene.objects]) scene.remove(o.id)
+  viewport.attachHandles(null)
+  viewport.select(null)
   rebuildPanel()
 })
 bind('tool-export', () => {
+  if (scene.objects.length === 0) return
   const group = viewport.getExportGroup()
   exportGLB(group, 'clay-wheel.glb')
 })
 
-// Draw + toggles
-bind('tool-draw', () => (drawingRim ? endDraw() : beginDraw()))
-bind('draw-finish', () => {
-  if (freehandProfiles.length > 0) commitRim(freehandProfiles)
-  else endDraw()
-})
-bind('draw-cancel', () => {
-  if (scene.rim && freehandProfiles.length === 0) { /* keep existing rim */ }
-  endDraw()
-})
+bind('draw-finish', () => { if (freehandProfiles.length > 0) commitRim(freehandProfiles); else endRimDraw() })
+bind('draw-cancel', () => endRimDraw())
 
 const repeatToggle = document.getElementById('toggle-repeat') as HTMLInputElement | null
 repeatToggle?.addEventListener('change', () => {
@@ -199,17 +273,20 @@ repeatCountInput?.addEventListener('input', () => {
 const inferToggle = document.getElementById('toggle-infer') as HTMLInputElement | null
 inferToggle?.addEventListener('change', () => {
   inferOn = inferToggle.checked
-  if (!inferOn && guessEl) guessEl.textContent = 'Inference off — draw freely.'
+  const g = guessEl(); if (!inferOn && g) g.textContent = 'Inference off — draw freely.'
 })
 
 let wire = false
-function setGizmo(mode: GizmoMode) {
-  viewport.setGizmoMode(mode)
+function setGizmo(m: GizmoMode) {
+  viewport.setGizmoMode(m)
   for (const id of ['tool-move', 'tool-rotate', 'tool-scale']) {
-    document.getElementById(id)?.classList.toggle(
-      'active',
-      id === `tool-${mode === 'translate' ? 'move' : mode}`
-    )
+    document.getElementById(id)?.classList.toggle('active', id === `tool-${m === 'translate' ? 'move' : m}`)
   }
 }
-setGizmo('translate')
+
+// Start empty. You draw.
+rebuildPanel()
+
+// Debug/test hook: lets the E2E harness inspect the live scene + viewport.
+// Harmless in production (read-only handles to already-public state).
+;(window as unknown as { __clay?: unknown }).__clay = { scene, viewport }

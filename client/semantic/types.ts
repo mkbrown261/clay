@@ -30,6 +30,12 @@ export interface Param<T = number | string | boolean> {
   editVisual?: VisualBinding
   locked?: boolean // Intent Lock: AI cannot modify when true
   group?: string
+  // Constraint-solver metadata. A `derived` param is COMPUTED from other params
+  // (read-only in the UI); it is not a driver the user edits directly.
+  derived?: boolean
+  // For a DRIVER param: the keys it affects (its downstream dependents). This is
+  // the "every parameter knows what it affects" relationship graph.
+  affects?: string[]
 }
 
 export type ParamMap = Record<string, Param>

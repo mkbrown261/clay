@@ -10,20 +10,52 @@ import type { Vec2 } from './stroke'
 import { toClosedProfile, bounds, looksClosed } from './stroke'
 
 export interface SketchResult {
-  profile: Vec2[] // cleaned, closed, CCW polygon in wheel-face local metres
+  profile: Vec2[] // cleaned, closed, CCW polygon in plane-local (u,v) metres
+  worldProfile: Vec2[] // same points, but raw world (before cleanup) for centroid/radius
   rawClosed: boolean // did the user visibly close the loop?
 }
 
 export type SketchDoneCb = (result: SketchResult) => void
 
-// The draw plane is the wheel's front face: z = planeZ, normal +Z.
+// A draw plane: a point + normal + an orthonormal (u,v) basis in the plane.
+// Screen points raycast onto it become 2D (u,v) coordinates in metres.
+export interface DrawPlane {
+  origin: THREE.Vector3
+  normal: THREE.Vector3
+  u: THREE.Vector3
+  v: THREE.Vector3
+}
+
+// Preset planes.
+export const WHEEL_FACE = (z: number): DrawPlane => ({
+  origin: new THREE.Vector3(0, 0, z),
+  normal: new THREE.Vector3(0, 0, 1),
+  u: new THREE.Vector3(1, 0, 0),
+  v: new THREE.Vector3(0, 1, 0)
+})
+export const GROUND = (): DrawPlane => ({
+  origin: new THREE.Vector3(0, 0, 0),
+  normal: new THREE.Vector3(0, 1, 0),
+  u: new THREE.Vector3(1, 0, 0),
+  v: new THREE.Vector3(0, 0, -1)
+})
+// The front (XY) plane through the origin — the same plane a wheel lives in.
+// Drawing here while the camera faces front keeps a screen-circle a true circle,
+// and maps 1:1 to the promoted wheel's radius.
+export const FRONT = (): DrawPlane => ({
+  origin: new THREE.Vector3(0, 0, 0),
+  normal: new THREE.Vector3(0, 0, 1),
+  u: new THREE.Vector3(1, 0, 0),
+  v: new THREE.Vector3(0, 1, 0)
+})
+
 export class SketchEngine {
   private canvas: HTMLCanvasElement
   private ctx: CanvasRenderingContext2D
   private drawing = false
   private screenPts: [number, number][] = []
   private active = false
-  private planeZ = 0
+  private plane: DrawPlane = GROUND()
   private onDone?: SketchDoneCb
   private ro?: ResizeObserver
 
@@ -57,10 +89,10 @@ export class SketchEngine {
     return this.active
   }
 
-  // Enter sketch mode. planeZ = the wheel face plane (front of the tire).
-  begin(planeZ: number, onDone: SketchDoneCb): void {
+  // Enter sketch mode on a given plane.
+  begin(plane: DrawPlane, onDone: SketchDoneCb): void {
     this.active = true
-    this.planeZ = planeZ
+    this.plane = plane
     this.onDone = onDone
     this.screenPts = []
     this.canvas.style.display = 'block'
@@ -132,44 +164,50 @@ export class SketchEngine {
     this.ctx.stroke()
   }
 
-  // Raycast a screen point onto the draw plane (z = planeZ), return world XY.
-  private screenToPlane(sx: number, sy: number): Vec2 | null {
-    const rect = this.canvas.getBoundingClientRect()
+  // Raycast a screen point onto the draw plane; return plane-local (u,v) metres.
+  // `rect` is passed in so projection still works after the overlay is hidden.
+  private screenToPlane(sx: number, sy: number, rect: DOMRect): Vec2 | null {
     const ndc = new THREE.Vector2(
       (sx / rect.width) * 2 - 1,
       -((sy / rect.height) * 2 - 1)
     )
     const ray = new THREE.Raycaster()
     ray.setFromCamera(ndc, this.camera)
-    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -this.planeZ)
+    const pl = this.plane
+    const plane = new THREE.Plane(pl.normal.clone(), -pl.normal.dot(pl.origin))
     const hit = new THREE.Vector3()
     const ok = ray.ray.intersectPlane(plane, hit)
     if (!ok) return null
-    return [hit.x, hit.y]
+    // Project the hit into the plane's (u,v) basis, relative to origin.
+    const rel = hit.sub(pl.origin)
+    return [rel.dot(pl.u), rel.dot(pl.v)]
   }
 
   private finish(): void {
     const screen = this.screenPts
+    // Capture the canvas rect for projection BEFORE we hide the overlay (a hidden
+    // element reports a zero-sized rect, which would break the raycast).
+    const rect = this.canvas.getBoundingClientRect()
+    // Deactivate + hide the overlay BEFORE emitting, so the result callback can
+    // hand control back to the viewport (handles/orbit) without the transparent
+    // sketch canvas intercepting pointer events. Rim-draw loops re-begin() as needed.
+    this.active = false
+    this.canvas.style.display = 'none'
     this.clear()
-    if (screen.length < 3) {
-      this.onDone?.({ profile: [], rawClosed: false })
-      return
-    }
+    const bail = () => this.onDone?.({ profile: [], worldProfile: [], rawClosed: false })
+    if (screen.length < 3) return bail()
     const world: Vec2[] = []
     for (const [sx, sy] of screen) {
-      const w = this.screenToPlane(sx, sy)
+      const w = this.screenToPlane(sx, sy, rect)
       if (w) world.push(w)
     }
-    if (world.length < 3) {
-      this.onDone?.({ profile: [], rawClosed: false })
-      return
-    }
+    if (world.length < 3) return bail()
     const rawClosed = looksClosed(world)
     const b = bounds(world)
     // spacing scales with drawing size so tiny sketches still resample well.
     const spacing = Math.max(0.006, Math.hypot(b.w, b.h) * 0.02)
     const profile = toClosedProfile(world, spacing, 2)
-    this.onDone?.({ profile, rawClosed })
+    this.onDone?.({ profile, worldProfile: world, rawClosed })
   }
 
   dispose(): void {

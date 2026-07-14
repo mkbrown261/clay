@@ -126,3 +126,81 @@ body {
   background: #0f141d; border-top: 1px solid var(--line); text-align: center;
 }
 #hint em { color: var(--text); font-style: normal; font-weight: 600; }
+
+/* ===== Empty state (blank canvas prompt) ===== */
+#empty-state {
+  position: absolute; inset: 0; z-index: 6;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+.empty-card {
+  pointer-events: auto; text-align: center; max-width: 380px;
+  padding: 32px 34px; border-radius: 16px;
+  background: rgba(21,27,38,.72); backdrop-filter: blur(10px);
+  border: 1px solid var(--line);
+  box-shadow: 0 20px 60px rgba(0,0,0,.5);
+}
+.empty-icon {
+  width: 58px; height: 58px; margin: 0 auto 16px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 22px;
+  color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow: 0 8px 24px rgba(91,140,255,.4);
+}
+.empty-card h2 { margin: 0 0 8px; font-size: 22px; }
+.empty-card p { margin: 0 0 18px; font-size: 13px; line-height: 1.55; color: var(--muted); }
+
+/* ===== Promotion prompt ("I think this is a Wheel 98%") ===== */
+#promote {
+  display: none; position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+  z-index: 12; justify-content: center;
+}
+.promote-card {
+  min-width: 300px; padding: 16px 18px; border-radius: 14px;
+  background: rgba(21,27,38,.94); backdrop-filter: blur(10px);
+  border: 1px solid var(--accent);
+  box-shadow: 0 16px 50px rgba(0,0,0,.55);
+  animation: promote-in .22s ease;
+}
+@keyframes promote-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.promote-title {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+}
+.promote-guess { display: flex; align-items: baseline; gap: 10px; margin: 6px 0 4px; }
+.promote-label { font-size: 22px; font-weight: 700; }
+.promote-conf {
+  font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+  padding: 2px 9px; border-radius: 20px;
+}
+.promote-conf.ok  { color: #7ee0a6; background: rgba(126,224,166,.14); }
+.promote-conf.low { color: #ffcc66; background: rgba(255,204,102,.14); }
+.promote-sub { font-size: 12px; color: var(--muted); margin-bottom: 12px; line-height: 1.45; }
+.promote-actions { display: flex; gap: 8px; }
+.promote-actions .tool { flex: 1; text-align: center; }
+
+/* ===== Panel empty message ===== */
+.panel-empty { font-size: 13px; color: var(--muted); padding: 8px 2px; line-height: 1.5; }
+
+/* ===== Derived (auto-computed) params ===== */
+.derived-group h3 { display: flex; align-items: center; gap: 8px; }
+.derived-tag {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent-2);
+  background: rgba(124,91,255,.14); padding: 2px 7px; border-radius: 20px;
+  border: none;
+}
+.derived-row { margin-bottom: 9px; }
+.derived-row label { margin-bottom: 0; color: var(--muted); }
+.derived-value { color: var(--text) !important; font-weight: 600; }
+
+/* ===== "affects" relationship chips (every driver knows what it affects) ===== */
+.affects {
+  margin-top: 7px; font-size: 10.5px; color: var(--muted);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px; line-height: 1.4;
+}
+.affects i { color: var(--accent-2); font-size: 10px; }
+.affects span {
+  color: var(--accent); background: rgba(91,140,255,.1);
+  padding: 1px 7px; border-radius: 20px; font-variant-numeric: tabular-nums;
+}

@@ -7,6 +7,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import type { SemanticObject } from '../semantic/types'
 import { getGenerator } from '../generators/registry'
+import { Handles, type HandleDragEvent } from './handles'
 
 export type GizmoMode = 'translate' | 'rotate' | 'scale'
 
@@ -24,7 +25,10 @@ export class Viewport {
   private entries = new Map<string, Entry>()
   private selectedId: string | null = null
   private wire = false
+  handles!: Handles
   onSelect?: (id: string | null) => void
+  onHandleDrag?: (e: HandleDragEvent) => void
+  onHandleDragEnd?: () => void
 
   constructor(private container: HTMLElement) {
     const w = container.clientWidth
@@ -66,8 +70,24 @@ export class Viewport {
       this.orbit.enabled = !e.value
     })
 
-    // Click-to-select.
-    this.renderer.domElement.addEventListener('pointerdown', this.onPointerDown)
+    // Direct-manipulation handles (blue grab points).
+    this.handles = new Handles(this.camera, this.renderer.domElement)
+    this.scene.add(this.handles.group)
+    this.handles.onDrag = (e) => this.onHandleDrag?.(e)
+    this.handles.onDragEnd = () => this.onHandleDragEnd?.()
+
+    // Pointer priority: handles > select. Orbit is suppressed while a handle drags.
+    const dom = this.renderer.domElement
+    dom.addEventListener('pointerdown', this.onPointerDown)
+    dom.addEventListener('pointermove', (e) => {
+      this.handles.onPointerMove(e)
+      if (this.handles.isDragging) this.orbit.enabled = false
+    })
+    dom.addEventListener('pointerup', () => {
+      const wasDragging = this.handles.isDragging
+      this.handles.onPointerUp()
+      if (wasDragging) this.orbit.enabled = true
+    })
 
     window.addEventListener('resize', () => this.onResize())
     this.animate()
@@ -142,6 +162,14 @@ export class Viewport {
     this.onSelect?.(id)
   }
 
+  // Attach the drag-handles to a semantic object (or null to hide).
+  attachHandles(obj: SemanticObject | null) {
+    this.handles.attach(obj)
+  }
+  repositionHandles() {
+    this.handles.reposition()
+  }
+
   get selected(): string | null {
     return this.selectedId
   }
@@ -158,6 +186,11 @@ export class Viewport {
   }
 
   private onPointerDown = (ev: PointerEvent) => {
+    // Handles take priority — if one is grabbed, suppress orbit + selection.
+    if (this.handles.onPointerDown(ev)) {
+      this.orbit.enabled = false
+      return
+    }
     // Ignore if the transform gizmo is being dragged.
     if ((this.transform as any).dragging) return
     const rect = this.renderer.domElement.getBoundingClientRect()
