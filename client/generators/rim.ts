@@ -33,6 +33,7 @@ function defaultParams(): ParamMap {
     { key: 'depth', label: 'Metal Depth', value: 0.06, type: 'number', min: 0.02, max: 0.2, step: 0.005, unit: 'm', group: 'Rim' },
     { key: 'radialRepeat', label: 'Radial Repeat', value: true, type: 'bool', group: 'Pattern' },
     { key: 'repeatCount', label: 'Repeat Count', value: 5, type: 'number', min: 3, max: 12, step: 1, group: 'Pattern' },
+    { key: 'autoConnect', label: 'Auto-connect spokes', value: true, type: 'bool', group: 'Pattern' },
     { key: 'hubRadius', label: 'Hub Radius', value: 0.06, type: 'number', min: 0.02, max: 0.16, step: 0.005, unit: 'm', group: 'Rim' },
     { key: 'lipWidth', label: 'Bead Lip', value: 0.02, type: 'number', min: 0, max: 0.06, step: 0.005, unit: 'm', group: 'Rim' }
   ]
@@ -47,6 +48,40 @@ function extrudeProfile(poly: Vec2[], depth: number): any {
   const cs = new CrossSection([poly as any]) as any
   // extrude along +Z by `depth`; then centre it on Z=0.
   return Manifold.extrude(cs, depth).translate([0, 0, -depth / 2])
+}
+
+// Clay assisting (toggleable): build a radial "arm" that welds a drawn spoke to
+// the hub (inner) and barrel (outer), so an imperfect drawing still yields ONE
+// solid rim. The arm follows the spoke's own angle + width; it never overrides
+// the artist's shape, it just guarantees connection.
+function bridgeArm(poly: Vec2[], depth: number, hubR: number, seatR: number): any | null {
+  const { Manifold } = M()
+  // Centroid angle + angular width of the drawn shape.
+  let cxs = 0
+  let cys = 0
+  for (const [x, y] of poly) { cxs += x; cys += y }
+  cxs /= poly.length
+  cys /= poly.length
+  const ang = Math.atan2(cys, cxs) // radians, spoke direction from centre
+  // Half-width of the spoke perpendicular to its radial axis.
+  const nx = -Math.sin(ang)
+  const ny = Math.cos(ang)
+  let halfW = 0
+  for (const [x, y] of poly) {
+    const d = Math.abs(x * nx + y * ny)
+    if (d > halfW) halfW = d
+  }
+  const w = Math.max(0.02, halfW * 1.6)
+  // Overlap both ends slightly so the arm FUSES into hub and barrel (one solid),
+  // rather than merely touching (which leaves separate bodies).
+  const inner = hubR * 0.5
+  const outer = seatR + 0.01
+  const len = outer - inner
+  if (len <= 0) return null
+  const mid = (inner + outer) / 2
+  return Manifold.cube([len, w, depth], true)
+    .translate([mid, 0, 0])
+    .rotate([0, 0, (ang * 180) / Math.PI])
 }
 
 // Build the rim solid from stored drawn profiles + params.
@@ -68,11 +103,16 @@ export function buildRimFromProfiles(objectId: string, params: ParamMap): any {
     .subtract(Manifold.cylinder(depth * 1.4, seatR, seatR, 96, true))
   parts.push(barrel)
 
+  const autoConnect = params['autoConnect']?.value !== false
   if (profiles.length > 0) {
     const drawn: any[] = []
     for (const poly of profiles) {
       if (poly.length < 3) continue
       drawn.push(extrudeProfile(poly, depth))
+      if (autoConnect) {
+        const arm = bridgeArm(poly, depth, hubR, seatR)
+        if (arm) drawn.push(arm)
+      }
     }
     if (drawn.length > 0) {
       const oneDrawing = drawn.length === 1 ? drawn[0] : Manifold.union(drawn)
