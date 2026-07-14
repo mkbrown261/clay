@@ -1,6 +1,29 @@
 # MeshDraw — Progress Log
 > Append-only. Newest at top. This is the "what actually happened" ledger.
 
+## 2026-07-14 — Session 3 (cont.): Step B — the Sketch Engine (DRAW the rim)
+**North-star reframing (user, to revisit after Step B)**
+- Clay is a **Constraint Solver**, not a "Wheel Generator". Change Radius → Outer Diameter, Circumference, Hub, Sidewall, Tread all derive. Every parameter should declare *what it affects* (a dependency graph) so AI changes RELATIONSHIPS, not guesses.
+- **Direct manipulation UX**: keep sliders, but make geometry grabbable — drag the outside → radius grows, drag width → widens, drag hub → hub grows, drag spoke → spokes change. Panel updates live while dragging.
+- Rule for every milestone: **end with something visible + interactive.**
+- Name = **Clay** (philosophy, malleable, never "finished/dead"), not MeshDraw (a feature).
+- These are logged as the Step-C direction; Step B (draw a rim) shipped first.
+
+**Done — Step B Sketch Engine**
+- `client/sketch/stroke.ts` — pure stroke math: resample, Chaikin `smooth`, `looksClosed`, `bounds`, `signedArea`, `ensureCCW`, `toClosedProfile`.
+- `client/sketch/engine.ts` — `SketchEngine`: overlay `<canvas>`, pointer capture, `screenToPlane()` raycasts each point onto the wheel face plane (z=faceZ, normal +Z), emits cleaned closed CCW profile in wheel-local metres.
+- `client/sketch/infer.ts` — toggleable "what are you drawing?" `inferShape()` (local heuristic: roundness/corners/aspect → circle | N-point star | spoke | shape). LLM later, same interface.
+- `client/generators/rim.ts` — `RimGenerator`. Drawn profile → `Manifold.extrude` (depth, centred on Z) → radial-repeat N (`.rotate([0,0,deg])`) OR freehand (keep strokes) → `union` hub cylinder + bead barrel. Profiles stored per-object id in a module Map (ParamMap holds only scalars). Seats at tire `rBead` → no gap.
+- `client/generators/tire.ts` — Tire split into its own standalone generator/object (reuses `buildTireManifold`).
+- `client/scene.ts` — multi-object `Scene`: tire + rim independent, selectable, removable; `applyRimDrawing()` creates/replaces rim keeping its id; empty profiles = re-seat only (tire resize preserves drawing).
+- `client/viewport/viewport.ts` — rewritten: `entries` map (multi-mesh), `upsert/remove/select`, click-to-select raycast, `faceCamera()` ease-in, per-type materials, `getExportGroup()`, `setInteractionEnabled()`.
+- `client/main.ts` — wires Scene + SketchEngine + inference; toggles (radialRepeat default ON count 5, freehand, inference default ON); object list with remove; Draw/Finish/Cancel flow.
+- UI (`src/index.tsx`, `clay.css`): Draw Rim button, floating draw-controls panel, Objects list.
+- Verified: client build 1,532 kB, 22 modules, no stray chunks; server built; PM2 restarted; prod + sandbox load with **zero JS errors** (PlaywrightConsoleCapture). Rim pipeline **smoke-tested headless in node** → valid manifold 882 verts / 1760 tris, bbox ±0.30 (seat 0.28 = tire rBead ⇒ connected).
+- Committed `8e44cfe`. Deployed → https://clay-meshdraw.pages.dev (deploy 64b71bfa).
+
+**Next** — user visual verify draw→rim in browser (capture tool can't mouse-draw). Then Step C: constraint graph + drag handles.
+
 ## 2026-07-14 — Session 3: Wheel v4 (Step A) — tire substrate + removable rim placeholder
 **Decisions**
 - D-007: **Tire is the parametric substrate; the RIM is DRAWN by the user** (Step B). No fake spoke-count / dish / lug sliders. Until a rim is drawn, show a minimal dished-disc placeholder — not a fake generator.
