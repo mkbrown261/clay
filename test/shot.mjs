@@ -3,7 +3,7 @@ import { chromium } from 'playwright'
 const URL = process.env.CLAY_URL || 'http://localhost:3000'
 const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'] })
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
-await page.goto(URL, { waitUntil: 'networkidle' })
+await page.route("**/*", r => r.continue()); await page.goto(URL, { waitUntil: "networkidle" })
 await page.waitForSelector('#viewport canvas', { timeout: 20000 })
 await page.waitForTimeout(1500)
 

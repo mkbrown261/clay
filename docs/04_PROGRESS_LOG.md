@@ -22,7 +22,13 @@
 - Verified: client build 1,532 kB, 22 modules, no stray chunks; server built; PM2 restarted; prod + sandbox load with **zero JS errors** (PlaywrightConsoleCapture). Rim pipeline **smoke-tested headless in node** → valid manifold 882 verts / 1760 tris, bbox ±0.30 (seat 0.28 = tire rBead ⇒ connected).
 - Committed `8e44cfe`. Deployed → https://clay-meshdraw.pages.dev (deploy 64b71bfa).
 
-**Next** — user visual verify draw→rim in browser (capture tool can't mouse-draw). Then Step C: constraint graph + drag handles.
+**Verified with REAL browser interaction** (installed chromium + system libs; local playwright now works)
+- `test/draw-flow.mjs` — drives real pointer events: Draw Rim → stroke → asserts a Rim object appears, zero JS errors. PASS on local + prod.
+- `test/shot.mjs` / `shot2.mjs` — screenshot harness (cache-bypass) for visual review.
+- `bridgeArm()` auto-connect: welds hub↔spoke↔barrel so imperfect drawings still yield ONE watertight solid. Headless topo check: `parts:1, genus:5` (5 spoke windows), volume>0. Toggle 'Auto-connect spokes' (default ON).
+- Confirmed prod bundle SHA == local; stale earlier screenshot was browser cache only. Deploy 64b71bfa→d23728d3.
+
+**Next** — Step C: constraint graph (params declare what they affect) + direct-manipulation drag handles (grab geometry, panel updates live).
 
 ## 2026-07-14 — Session 3: Wheel v4 (Step A) — tire substrate + removable rim placeholder
 **Decisions**
