@@ -3,6 +3,7 @@
 import { Viewport, type GizmoMode } from './viewport/viewport'
 import { registerGenerator, getGenerator } from './generators/registry'
 import { WheelGenerator } from './generators/wheel'
+import { initManifold } from './generators/manifold'
 import { uid, withParam, type Param, type SemanticObject } from './semantic/types'
 import { renderPanel } from './ui/panel'
 import { exportGLB } from './export/glb'
@@ -12,6 +13,9 @@ registerGenerator(WheelGenerator)
 const viewportEl = document.getElementById('viewport') as HTMLElement
 const panelEl = document.getElementById('panel') as HTMLElement
 const viewport = new Viewport(viewportEl)
+
+// Manifold (CAD kernel) must be ready before any generator runs.
+await initManifold()
 
 // Create the reference SemanticObject: a Wheel.
 let active: SemanticObject = {

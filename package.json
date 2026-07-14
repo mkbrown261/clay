@@ -3,7 +3,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build:client": "CLIENT=1 vite build",
+    "build:client": "CLIENT=1 vite build && cp node_modules/manifold-3d/manifold.wasm public/static/manifold.wasm",
     "build:server": "vite build",
     "build": "npm run build:client && npm run build:server",
     "preview": "wrangler pages dev dist",
@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "hono": "^4.12.30",
+    "manifold-3d": "^3.5.1",
     "openai": "^6.46.0",
     "three": "^0.185.1"
   },

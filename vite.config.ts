@@ -14,13 +14,19 @@ export default defineConfig(
         build: {
           outDir: 'public/static',
           emptyOutDir: false,
+          target: 'esnext',
+          assetsInlineLimit: 0,
           lib: {
             entry: 'client/main.ts',
             formats: ['es'],
             fileName: () => 'clay.js'
           },
           rollupOptions: {
-            output: { assetFileNames: 'clay.[ext]' }
+            output: {
+              inlineDynamicImports: true,
+              assetFileNames: 'clay.[ext]',
+              entryFileNames: 'clay.js'
+            }
           }
         }
       }
