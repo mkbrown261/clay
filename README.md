@@ -45,5 +45,6 @@ curl http://localhost:3000
 ```
 
 ## Deployment
-- **Platform**: Cloudflare Pages · **Status**: not yet deployed (running in sandbox)
+- **Platform**: Cloudflare Pages · **Status**: ✅ Live
+- **Production**: https://clay-meshdraw.pages.dev
 - **Last updated**: 2026-07-14
