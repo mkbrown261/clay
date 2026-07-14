@@ -1,6 +1,20 @@
 # MeshDraw — Progress Log
 > Append-only. Newest at top. This is the "what actually happened" ledger.
 
+## 2026-07-14 — Session 3: Wheel v4 (Step A) — tire substrate + removable rim placeholder
+**Decisions**
+- D-007: **Tire is the parametric substrate; the RIM is DRAWN by the user** (Step B). No fake spoke-count / dish / lug sliders. Until a rim is drawn, show a minimal dished-disc placeholder — not a fake generator.
+- D-008: Sketch Engine plan locked: draw ONE spoke → radial-repeat N (default ON, count adjustable) → toggle OFF for full freehand. "What are you drawing?" inference is ON by default but **toggleable**. Clay assists; never hijacks.
+
+**Done — wheel.ts v4**
+- Unified axis: tire + rim both authored as `Manifold.revolve()` cross-sections on the same Z-axis → **no tire↔rim gap**, correct orientation. Both meet exactly at `rBead`.
+- Removed fake params: spokes, spokeWidth, dish, hubRadius, lugs. New param set: radius, width, aspect(Sidewall Ratio), shoulder, treadDepth, treadCount, rubberType, wear.
+- `buildTireManifold()` and `buildRimManifold()` are **separate exported builders** → enables Step B independent, removable tire/rim objects.
+- Built (clay.js 1,517.94 kB), no stray chunks, server built, PM2 restarted. Verified clean (no JS errors) locally + on prod via PlaywrightConsoleCapture.
+- Committed `c0de9e8`. Deployed → https://clay-meshdraw.pages.dev (deploy 3821c5f0).
+
+**Next — Step B (Sketch Engine)** — NOT started. Draw stroke → close loop → spoke profile → revolve/extrude via manifold → selectable/removable rim; redraw replaces. Radial-repeat + freehand toggles; toggleable inference.
+
 ## 2026-07-14 — Session 2: Name = Clay + Wheel prototype BUILT
 **Decisions**
 - D-005: **Name locked → "Clay"** (feeling B: living/malleable; never dead geometry). "MeshDraw" retained as internal codename.
