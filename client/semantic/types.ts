@@ -6,6 +6,7 @@ export type SemanticType =
   | 'wheel'
   | 'tire'
   | 'rim'
+  | 'revolve'
   | 'box'
   | 'disk'
   | 'sphere'

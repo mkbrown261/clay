@@ -101,6 +101,10 @@ export class Viewport {
     if (type === 'rim') {
       return [new THREE.MeshStandardMaterial({ color: 0xb9c2d0, metalness: 0.9, roughness: 0.3 })]
     }
+    if (type === 'revolve') {
+      // A clay-like ceramic material — this is "Clay", after all.
+      return [new THREE.MeshStandardMaterial({ color: 0xc9a58b, metalness: 0.0, roughness: 0.7 })]
+    }
     // wheel = combined groups (rubber + metal)
     return [
       new THREE.MeshStandardMaterial({ color: 0x1c1f26, metalness: 0.05, roughness: 0.85 }),

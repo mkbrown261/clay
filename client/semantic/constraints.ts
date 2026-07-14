@@ -69,9 +69,28 @@ export const WHEEL_CONSTRAINTS: ConstraintSet = {
   ]
 }
 
+// ---- REVOLVE constraint set ---------------------------------------------------
+// Drivers: angle (sweep), segments, scaleR, scaleH, wallSolid.
+// Derived: sweepClosed (is it a full solid of revolution?), and the drivers know
+// what they affect. Height/radius come from the drawn silhouette, so we surface
+// the scale relationships rather than absolute size (which the drawing owns).
+export const REVOLVE_CONSTRAINTS: ConstraintSet = {
+  affects: {
+    scaleR: ['maxRadius', 'approxVolume'],
+    scaleH: ['height', 'approxVolume'],
+    angle: ['sweepFraction', 'approxVolume'],
+    segments: ['facetAngle']
+  },
+  derived: [
+    { key: 'sweepFraction', label: 'Sweep', unit: '', group: 'Derived', compute: (p) => num(p, 'angle') / 360 },
+    { key: 'facetAngle', label: 'Facet Angle', unit: 'deg', group: 'Derived', compute: (p) => num(p, 'angle') / Math.max(1, num(p, 'segments')) }
+  ]
+}
+
 const SETS: Partial<Record<SemanticType, ConstraintSet>> = {
   wheel: WHEEL_CONSTRAINTS,
-  tire: WHEEL_CONSTRAINTS
+  tire: WHEEL_CONSTRAINTS,
+  revolve: REVOLVE_CONSTRAINTS
 }
 
 export function constraintSetFor(type: SemanticType): ConstraintSet | undefined {
@@ -113,5 +132,7 @@ export function formatDerived(key: string, value: number): string {
   }
   if (key === 'uvScale') return `×${value.toFixed(2)}`
   if (key === 'treadPitch') return `${value.toFixed(2)} cm`
+  if (key === 'sweepFraction') return `${Math.round(value * 100)}%`
+  if (key === 'facetAngle') return `${value.toFixed(2)}°`
   return `${value.toFixed(3)} m`
 }

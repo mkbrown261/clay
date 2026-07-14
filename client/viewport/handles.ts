@@ -6,8 +6,9 @@
 import * as THREE from 'three'
 import type { SemanticObject } from '../semantic/types'
 import { num } from '../semantic/types'
+import { silhouetteBase } from '../generators/revolve'
 
-export type HandleKind = 'radius' | 'width' | 'hub'
+export type HandleKind = 'radius' | 'width' | 'hub' | 'rev-radius' | 'rev-height'
 
 export interface HandleDragEvent {
   key: string // param key to update ('radius' | 'width' | 'hubRadius')
@@ -18,6 +19,8 @@ interface HandleDef {
   kind: HandleKind
   mesh: THREE.Mesh
   paramKey: string
+  // Which semantic types this handle applies to.
+  forTypes: string[]
   // Map a world drag to a param value, given the object.
   toValue: (world: THREE.Vector3, obj: SemanticObject) => number
   // Where the handle sits, given the object.
@@ -53,48 +56,74 @@ export class Handles {
   }
 
   private buildHandles() {
-    // radius: on +X edge, slides along X.
+    // ---- Wheel/tire handles ----
     const radius = this.sphere()
-    // width: on +Z edge (front), slides along Z.
     const width = this.sphere()
-    // hub: at centre top small, slides along X (radius of hub).
     const hub = this.sphere()
     hub.scale.setScalar(0.7)
+    // ---- Revolve handles ----
+    const revRadius = this.sphere()
+    const revHeight = this.sphere()
 
     this.defs = [
       {
-        kind: 'radius', mesh: radius, paramKey: 'radius', axis: new THREE.Vector3(1, 0, 0),
+        kind: 'radius', mesh: radius, paramKey: 'radius', forTypes: ['tire', 'wheel'], axis: new THREE.Vector3(1, 0, 0),
         place: (o) => new THREE.Vector3(num(o.params, 'radius'), 0, 0),
         toValue: (w) => Math.abs(w.x)
       },
       {
-        kind: 'width', mesh: width, paramKey: 'width', axis: new THREE.Vector3(0, 0, 1),
+        kind: 'width', mesh: width, paramKey: 'width', forTypes: ['tire', 'wheel'], axis: new THREE.Vector3(0, 0, 1),
         place: (o) => new THREE.Vector3(0, 0, num(o.params, 'width') / 2),
         toValue: (w) => Math.abs(w.z) * 2
       },
       {
-        kind: 'hub', mesh: hub, paramKey: 'hubRadius', axis: new THREE.Vector3(1, 0, 0),
+        kind: 'hub', mesh: hub, paramKey: 'hubRadius', forTypes: ['tire', 'wheel'], axis: new THREE.Vector3(1, 0, 0),
         place: (o) => new THREE.Vector3(num(o.params, 'hubRadius') || 0.12, 0.0, num(o.params, 'width') / 2 + 0.001),
         toValue: (w) => Math.abs(w.x)
+      },
+      // Revolve: radius scale (drag +X = wider) — the solid stands on +Y.
+      {
+        kind: 'rev-radius', mesh: revRadius, paramKey: 'scaleR', forTypes: ['revolve'], axis: new THREE.Vector3(1, 0, 0),
+        place: (o) => new THREE.Vector3(this.revBase(o).maxRadius * num(o.params, 'scaleR'), this.revBase(o).height * num(o.params, 'scaleH') * 0.5, 0),
+        toValue: (w, o) => Math.abs(w.x) / this.revBase(o).maxRadius
+      },
+      // Revolve: height scale (drag +Y = taller).
+      {
+        kind: 'rev-height', mesh: revHeight, paramKey: 'scaleH', forTypes: ['revolve'], axis: new THREE.Vector3(0, 1, 0),
+        place: (o) => new THREE.Vector3(0, this.revBase(o).height * num(o.params, 'scaleH'), 0),
+        toValue: (w, o) => Math.abs(w.y) / this.revBase(o).height
       }
     ]
     for (const d of this.defs) this.group.add(d.mesh)
   }
 
-  // Only wheels/tires expose these handles.
+  // Cache the base silhouette extent per object id (recomputed on attach).
+  private baseCache: { id: string; maxRadius: number; height: number } | null = null
+  private revBase(o: SemanticObject): { maxRadius: number; height: number } {
+    if (this.baseCache && this.baseCache.id === o.id) return this.baseCache
+    const id = String(o.params['_objectId']?.value ?? o.id)
+    const base = silhouetteBase(id)
+    this.baseCache = { id: o.id, ...base }
+    return this.baseCache
+  }
+
+  // Wheels/tires and revolves expose (different) handles.
   attach(obj: SemanticObject | null) {
-    this.obj = obj && (obj.type === 'tire' || obj.type === 'wheel') ? obj : null
+    const supported = obj && (obj.type === 'tire' || obj.type === 'wheel' || obj.type === 'revolve')
+    this.obj = supported ? obj : null
+    this.baseCache = null
     this.group.visible = !!this.obj
     if (this.obj) this.reposition()
   }
 
   reposition() {
     if (!this.obj) return
+    const type = this.obj.type
     for (const d of this.defs) {
-      // hub handle only relevant if the object has a hubRadius param.
-      const has = d.paramKey in this.obj.params
-      d.mesh.visible = has
-      if (has) d.mesh.position.copy(d.place(this.obj))
+      // A handle shows if it applies to this type AND its param exists.
+      const applies = d.forTypes.includes(type) && d.paramKey in this.obj.params
+      d.mesh.visible = applies
+      if (applies) d.mesh.position.copy(d.place(this.obj))
     }
   }
 

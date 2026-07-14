@@ -70,25 +70,63 @@ export function fitCircle(pts: Vec2[]): CircleFit {
   return { cx, cy, radius: mean, circularity }
 }
 
-// Top-level "what did you draw?" for the BLANK CANVAS: is it a wheel?
+// Top-level "what did you draw?" for the BLANK CANVAS.
+//  - A round CLOSED loop      -> Wheel  (revolve a section around its own centre)
+//  - An OPEN silhouette curve -> Revolve (a lathe: spin the outline into a solid)
+//  - otherwise                -> unknown (still promotable)
+export type CanvasType = 'wheel' | 'revolve' | 'unknown'
 export interface CanvasGuess {
-  type: 'wheel' | 'unknown'
+  type: CanvasType
   label: string
   confidence: number // 0..1
-  radius: number // world metres (from the fit)
+  radius: number // world metres (circle fit, for wheels)
   center: [number, number]
+  silhouette: Vec2[] // the raw outline (used when promoting to a Revolve)
 }
+
+// Is the loop "closed"? endpoints near each other vs the drawing's own size.
+function endpointsClosed(pts: Vec2[]): number {
+  if (pts.length < 4) return 1
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  for (const [x, y] of pts) {
+    if (x < minX) minX = x; if (y < minY) minY = y
+    if (x > maxX) maxX = x; if (y > maxY) maxY = y
+  }
+  const diag = Math.hypot(maxX - minX, maxY - minY) || 1
+  const gap = Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1])
+  return gap / diag // 0 = perfectly closed, large = open
+}
+
 export function inferCanvas(profile: Vec2[]): CanvasGuess {
   if (profile.length < 6) {
-    return { type: 'unknown', label: 'Unknown', confidence: 0.2, radius: 0.4, center: [0, 0] }
+    return { type: 'unknown', label: 'Unknown', confidence: 0.2, radius: 0.4, center: [0, 0], silhouette: profile }
   }
   const fit = fitCircle(profile)
-  // A round closed loop = a wheel. Confidence tracks circularity.
-  if (fit.circularity > 0.72) {
+  const closedness = endpointsClosed(profile)
+
+  // A round, closed loop = a wheel.
+  if (fit.circularity > 0.72 && closedness < 0.25) {
     const conf = Math.min(0.99, 0.6 + fit.circularity * 0.4)
-    return { type: 'wheel', label: 'Wheel', confidence: conf, radius: fit.radius, center: [fit.cx, fit.cy] }
+    return { type: 'wheel', label: 'Wheel', confidence: conf, radius: fit.radius, center: [fit.cx, fit.cy], silhouette: profile }
   }
-  return { type: 'unknown', label: 'Unknown', confidence: 0.35 + fit.circularity * 0.3, radius: fit.radius, center: [fit.cx, fit.cy] }
+
+  // An open outline with real vertical extent = a silhouette to revolve.
+  let minY = Infinity, maxY = -Infinity, minX = Infinity, maxX = -Infinity
+  for (const [x, y] of profile) {
+    if (y < minY) minY = y; if (y > maxY) maxY = y
+    if (x < minX) minX = x; if (x > maxX) maxX = x
+  }
+  const h = maxY - minY
+  const w = maxX - minX
+  const tallEnough = h > 0.05 && h > w * 0.5
+  if (tallEnough) {
+    // Confidence: opener + taller silhouettes read more clearly as a lathe outline.
+    const openScore = Math.min(1, closedness * 1.4)
+    const conf = Math.min(0.97, 0.55 + openScore * 0.25 + Math.min(0.17, h * 0.2))
+    return { type: 'revolve', label: 'Revolved Form', confidence: conf, radius: fit.radius, center: [fit.cx, fit.cy], silhouette: profile }
+  }
+
+  return { type: 'unknown', label: 'Unknown', confidence: 0.35 + fit.circularity * 0.3, radius: fit.radius, center: [fit.cx, fit.cy], silhouette: profile }
 }
 
 export function inferShape(profile: Vec2[]): Guess {

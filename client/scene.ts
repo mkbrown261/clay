@@ -2,10 +2,11 @@
 // the bridge that keeps the viewport in sync. Tire + rim are independent objects.
 // Adding/removing/redrawing the rim never touches the tire.
 
-import type { SemanticObject, Param } from './semantic/types'
+import type { SemanticObject, Param, ParamMap } from './semantic/types'
 import { uid, withParam, num } from './semantic/types'
 import { getGenerator } from './generators/registry'
 import { setRimProfiles, clearRimProfiles } from './generators/rim'
+import { setSilhouette, clearSilhouette } from './generators/revolve'
 import { wheelDims } from './generators/tire'
 import { solve } from './semantic/constraints'
 import type { Vec2 } from './sketch/stroke'
@@ -29,6 +30,7 @@ export class Scene {
     const obj = this.get(id)
     if (!obj) return
     if (obj.type === 'rim') clearRimProfiles(id)
+    if (obj.type === 'revolve') clearSilhouette(id)
     this.objects = this.objects.filter((o) => o.id !== id)
     this.viewport.remove(id)
   }
@@ -73,6 +75,27 @@ export class Scene {
     }
     this.add(tire)
     return tire
+  }
+
+  // ----- Object Promotion: a drawn SILHOUETTE becomes an editable Revolve -----
+  // silhouette = the raw drawn outline in FRONT-plane (x,y) metres. It is spun
+  // 360° around the vertical axis into a watertight solid of revolution.
+  promoteToRevolve(silhouette: Vec2[]): SemanticObject {
+    const id = uid('rev')
+    setSilhouette(id, silhouette)
+    const params: ParamMap = {
+      ...getGenerator('revolve').defaultParams(),
+      _objectId: { key: '_objectId', label: '', value: id, type: 'enum', group: '__hidden' }
+    }
+    const rev: SemanticObject = {
+      id,
+      type: 'revolve',
+      label: 'Revolved Form',
+      params,
+      transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] }
+    }
+    this.add(rev)
+    return rev
   }
 
   // The Z of the tire's front face — where the artist draws.

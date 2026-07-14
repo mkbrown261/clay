@@ -8,6 +8,7 @@ import { Viewport, type GizmoMode } from './viewport/viewport'
 import { registerGenerator, getGenerator } from './generators/registry'
 import { TireGenerator } from './generators/tire'
 import { RimGenerator } from './generators/rim'
+import { RevolveGenerator } from './generators/revolve'
 import { initManifold } from './generators/manifold'
 import type { Param } from './semantic/types'
 import { renderPanel } from './ui/panel'
@@ -19,6 +20,7 @@ import type { Vec2 } from './sketch/stroke'
 
 registerGenerator(TireGenerator)
 registerGenerator(RimGenerator)
+registerGenerator(RevolveGenerator)
 
 const viewportEl = document.getElementById('viewport') as HTMLElement
 const panelEl = document.getElementById('panel') as HTMLElement
@@ -69,7 +71,7 @@ viewport.onSelect = (id) => {
 
 function currentObject() {
   const id = viewport.selected
-  return (id && scene.get(id)) || scene.tire || null
+  return (id && scene.get(id)) || scene.tire || scene.objects[0] || null
 }
 
 function rebuildPanel() {
@@ -99,7 +101,7 @@ function renderObjectList() {
   for (const o of scene.objects) {
     const row = document.createElement('div')
     row.className = 'obj-row' + (o.id === viewport.selected ? ' selected' : '')
-    const icon = o.type === 'rim' ? 'fa-ring' : 'fa-circle-dot'
+    const icon = o.type === 'rim' ? 'fa-ring' : o.type === 'revolve' ? 'fa-wine-bottle' : 'fa-circle-dot'
     row.innerHTML = `<span class="obj-name"><i class="fa-solid ${icon}"></i> ${o.label}</span>`
     row.addEventListener('click', () => viewport.select(o.id))
     if (o.type === 'rim') {
@@ -122,48 +124,64 @@ function renderObjectList() {
 }
 
 // ===== BLANK CANVAS: draw a shape =====
+let pendingSilhouette: Vec2[] = []
+
 function beginCanvasDraw() {
   mode = 'draw-canvas'
   emptyEl.style.display = 'none'
   hidePromote()
   viewport.setInteractionEnabled(false)
   document.getElementById('tool-draw')?.classList.add('active')
-  // Face the front plane so a screen-circle stays a true circle and maps 1:1
-  // onto the wheel's own plane (no perspective distortion of the sketch).
+  // Face the front plane so a screen-drawing maps 1:1 onto the object's own
+  // plane (no perspective distortion): a circle stays a circle, a silhouette
+  // keeps its true proportions.
   viewport.faceCamera(1.9, 400)
   sketch.begin(FRONT(), (res) => {
     viewport.setInteractionEnabled(true)
     document.getElementById('tool-draw')?.classList.remove('active')
     mode = 'idle'
-    if (res.profile.length < 6) { renderObjectList(); return }
-    const guess = inferCanvas(res.profile)
+    // Use the RAW worldProfile for detection (the cleaned `profile` is force-closed,
+    // which would erase the open-silhouette signal we need for revolve).
+    const raw = res.worldProfile.length >= 6 ? res.worldProfile : res.profile
+    if (raw.length < 6) { renderObjectList(); return }
+    const guess = inferCanvas(raw)
     pendingRadius = guess.radius || 0.5
+    pendingSilhouette = guess.silhouette
     showPromote(guess)
   })
 }
 
 function showPromote(guess: ReturnType<typeof inferCanvas>) {
   const pct = Math.round(guess.confidence * 100)
-  const known = guess.type === 'wheel'
+  const confident = guess.confidence >= 0.6
+  // What will "Promote" create? Wheel for round loops, Revolve for silhouettes,
+  // and unknown falls back to a Revolve (a lathe works for almost any outline).
+  const target: 'wheel' | 'revolve' = guess.type === 'wheel' ? 'wheel' : 'revolve'
+  const targetLabel = target === 'wheel' ? 'Wheel' : 'Revolved Form'
+  const sub = guess.type === 'unknown'
+    ? `Not sure what that is — spin it into a Revolved Form?`
+    : `Promote this drawing into a live, editable ${targetLabel}?`
   promoteEl.innerHTML = `
     <div class="promote-card">
       <div class="promote-title">Clay detected</div>
       <div class="promote-guess">
         <span class="promote-label">${guess.label}</span>
-        <span class="promote-conf ${known ? 'ok' : 'low'}">${pct}%</span>
+        <span class="promote-conf ${confident ? 'ok' : 'low'}">${pct}%</span>
       </div>
-      <div class="promote-sub">${known ? 'Promote this drawing into a live, editable Wheel?' : 'Not confident. Promote as a Wheel anyway?'}</div>
+      <div class="promote-sub">${sub}</div>
       <div class="promote-actions">
-        <button id="promote-yes" class="tool primary"><i class="fa-solid fa-check"></i> Promote to Wheel</button>
+        <button id="promote-yes" class="tool primary"><i class="fa-solid fa-check"></i> Promote to ${targetLabel}</button>
         <button id="promote-no" class="tool"><i class="fa-solid fa-xmark"></i> Discard</button>
       </div>
     </div>`
   promoteEl.style.display = 'flex'
   document.getElementById('promote-yes')?.addEventListener('click', () => {
-    const tire = scene.promoteToWheel(pendingRadius)
+    const obj = target === 'wheel'
+      ? scene.promoteToWheel(pendingRadius)
+      : scene.promoteToRevolve(pendingSilhouette)
     hidePromote()
-    viewport.select(tire.id)
-    viewport.attachHandles(tire)
+    viewport.select(obj.id)
+    viewport.attachHandles(obj)
     viewport.faceCamera(1.9, 500)
     rebuildPanel()
   })

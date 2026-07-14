@@ -36,7 +36,7 @@ app.get('/', (c) => {
         <div class="empty-card">
           <div class="empty-icon"><i class="fa-solid fa-pen-nib"></i></div>
           <h2>Draw something.</h2>
-          <p>Sketch a round shape on the canvas. Clay will guess what it is — then you promote it into a live, editable object you can grab and reshape.</p>
+          <p>Sketch a round loop for a <strong>wheel</strong>, or an open <strong>silhouette</strong> (half a vase / bottle / bowl) to spin into a solid. Clay guesses what it is — then you promote it into a live, editable object you can grab and reshape.</p>
           <button id="empty-draw" class="tool primary"><i class="fa-solid fa-pen-nib"></i> Start drawing</button>
         </div>
       </div>
