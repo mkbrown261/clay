@@ -4,6 +4,8 @@
 export type SemanticType =
   | 'freeform'
   | 'wheel'
+  | 'tire'
+  | 'rim'
   | 'box'
   | 'disk'
   | 'sphere'

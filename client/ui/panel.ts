@@ -28,6 +28,7 @@ export function renderPanel(
 
   const groups = groupParams(obj.params)
   for (const [groupName, params] of Object.entries(groups)) {
+    if (groupName === '__hidden') continue
     const section = document.createElement('section')
     section.className = 'param-group'
     const title = document.createElement('h3')
