@@ -1,9 +1,12 @@
-// Clay — Wheel smart primitive (v3: CAD-grade solids via manifold booleans).
-// The mesh is a pure function of the semantic params. This version builds real
-// solids and CUTS features (tread grooves, spoke windows, lug holes) so it reads
-// like the reference wheel, not fake gear-teeth boxes.
+// Clay — Wheel smart primitive (v4).
+// Philosophy: the TIRE is the parametric substrate. The RIM is meant to be DRAWN
+// by the user (Step B). Until a rim is drawn, we show a minimal placeholder rim
+// (a plain dished disc) — NOT a fake spoke generator. Tire and rim are built as
+// SEPARATE geometries so they can become independent, removable objects.
 //
-// Orientation: wheel axis = Z (faces the camera down -Z). Radial plane = XY.
+// Axis convention: Manifold.revolve() spins a 2D cross-section (x=radial,
+// y=axial) around Y, and the result's axis is Z. So EVERYTHING here is authored
+// as a revolved cross-section on the same Z axis -> no gaps, no misalignment.
 
 import * as THREE from 'three'
 import type { Generator } from './registry'
@@ -14,22 +17,30 @@ import { M, manifoldToGeometry } from './manifold'
 export const WHEEL_GROUP_RUBBER = 0
 export const WHEEL_GROUP_METAL = 1
 
+// Shared derived dimensions so tire and rim ALWAYS meet at the same radius.
+export interface WheelDims {
+  radius: number
+  width: number
+  halfW: number
+  rBead: number // radius where tire inner meets rim outer (the seat)
+}
+export function wheelDims(params: ParamMap): WheelDims {
+  const radius = num(params, 'radius')
+  const width = num(params, 'width')
+  const aspect = num(params, 'aspect')
+  const sidewall = width * aspect
+  return { radius, width, halfW: width / 2, rBead: radius - sidewall }
+}
+
 function defaultParams(): ParamMap {
   const p: Param[] = [
     { key: 'radius', label: 'Radius', value: 0.55, type: 'number', min: 0.2, max: 1.5, step: 0.01, unit: 'm', group: 'Dimensions', editVisual: { gizmo: 'radial' } },
     { key: 'width', label: 'Width', value: 0.32, type: 'number', min: 0.1, max: 0.9, step: 0.01, unit: 'm', group: 'Dimensions', editVisual: { gizmo: 'axis', axis: 'z' } },
     { key: 'aspect', label: 'Sidewall Ratio', value: 0.5, type: 'number', min: 0.25, max: 0.85, step: 0.01, unit: '', group: 'Dimensions' },
     { key: 'shoulder', label: 'Shoulder Round', value: 0.5, type: 'number', min: 0.1, max: 1, step: 0.05, unit: '', group: 'Dimensions' },
-    // Tire / tread
     { key: 'treadDepth', label: 'Tread Depth', value: 0.02, type: 'number', min: 0, max: 0.08, step: 0.005, unit: 'm', group: 'Tire' },
     { key: 'treadCount', label: 'Tread Blocks', value: 48, type: 'number', min: 12, max: 90, step: 1, group: 'Tire' },
     { key: 'rubberType', label: 'Rubber Type', value: 'street', type: 'enum', options: ['mud', 'street', 'performance', 'winter'], group: 'Tire' },
-    // Rim
-    { key: 'spokes', label: 'Spokes', value: 5, type: 'number', min: 3, max: 8, step: 1, group: 'Rim' },
-    { key: 'spokeWidth', label: 'Spoke Width', value: 0.55, type: 'number', min: 0.2, max: 0.9, step: 0.05, unit: '', group: 'Rim' },
-    { key: 'dish', label: 'Dish Depth', value: 0.06, type: 'number', min: 0, max: 0.2, step: 0.01, unit: 'm', group: 'Rim' },
-    { key: 'hubRadius', label: 'Hub Radius', value: 0.09, type: 'number', min: 0.04, max: 0.3, step: 0.01, unit: 'm', group: 'Rim' },
-    { key: 'lugs', label: 'Lug Bolts', value: 5, type: 'number', min: 0, max: 8, step: 1, group: 'Rim' },
     { key: 'wear', label: 'Wear', value: 'new', type: 'enum', options: ['new', 'used', 'destroyed'], group: 'Wear' }
   ]
   const map: ParamMap = {}
@@ -42,178 +53,118 @@ function treadFactors(params: ParamMap) {
   const depthMul = rubber === 'mud' ? 2.2 : rubber === 'winter' ? 1.5 : rubber === 'performance' ? 0.3 : 1
   const wear = str(params, 'wear')
   const wearMul = wear === 'destroyed' ? 0.05 : wear === 'used' ? 0.5 : 1
-  const mud = rubber === 'mud'
-  return { depthMul, wearMul, mud }
+  return { depthMul, wearMul, mud: rubber === 'mud' }
 }
 
-// ---- TIRE (rubber) : revolve a rounded cross-section, then cut tread grooves.
-function buildTire(params: ParamMap): THREE.BufferGeometry {
+// ---- TIRE (rubber): revolve a rounded section that seats exactly at rBead.
+export function buildTireManifold(params: ParamMap): any {
   const { Manifold, CrossSection } = M()
-  const radius = num(params, 'radius')
-  const width = num(params, 'width')
-  const aspect = num(params, 'aspect') // sidewall as fraction of section width
+  const d = wheelDims(params)
   const shoulderR = num(params, 'shoulder')
-  const halfW = width / 2
-  const sidewall = width * aspect
-  const rBead = radius - sidewall // where rubber seats on rim
+  const sh = shoulderR * d.halfW * 0.9
+  const shR = shoulderR * (d.radius - d.rBead) * 0.4
 
-  // Cross-section polygon in (x = radial, y = axial) space, positive-X only
-  // (revolve uses the +X side). Rounded shoulders via extra chamfer points.
-  const sh = shoulderR * halfW * 0.9
-  const shR = shoulderR * (radius - rBead) * 0.5
+  // Cross-section, +X side only, closed polygon (x=radial, y=axial).
   const pts: [number, number][] = [
-    [rBead, -halfW * 0.9],
-    [rBead + (radius - rBead) * 0.15, -halfW],
-    [radius - shR, -halfW],
-    [radius, -halfW + sh],
-    [radius, halfW - sh],
-    [radius - shR, halfW],
-    [rBead + (radius - rBead) * 0.15, halfW],
-    [rBead, halfW * 0.9]
+    [d.rBead, -d.halfW * 0.92],
+    [d.rBead, -d.halfW],
+    [d.radius - shR, -d.halfW],
+    [d.radius, -d.halfW + sh],
+    [d.radius, d.halfW - sh],
+    [d.radius - shR, d.halfW],
+    [d.rBead, d.halfW],
+    [d.rBead, d.halfW * 0.92]
   ]
-  const cs = new CrossSection([pts])
-  let tire = Manifold.revolve(cs, 128)
+  let tire = Manifold.revolve(new CrossSection([pts]), 128)
 
-  // Tread grooves: subtract an array of thin boxes/wedges around the crown.
+  // Tread grooves cut INTO the crown.
   const { depthMul, wearMul, mud } = treadFactors(params)
   const depth = num(params, 'treadDepth') * depthMul * wearMul
   const count = Math.max(8, Math.round(num(params, 'treadCount')))
   if (depth > 0.002) {
-    const grooveW = mud ? 0.05 : 0.02
     const cutters: any[] = []
-    // circumferential center groove (a torus-like ring cut) for street look
     if (!mud) {
-      const ring = Manifold.cylinder(width * 0.06, radius + 0.02, radius + 0.02, 128, true)
-        .rotate([90, 0, 0])
-      cutters.push(ring)
+      // circumferential center rib groove: subtract a thin ring near the crown
+      const ringOuter = new CrossSection([[
+        [d.radius - depth, -d.width * 0.04],
+        [d.radius + 0.05, -d.width * 0.04],
+        [d.radius + 0.05, d.width * 0.04],
+        [d.radius - depth, d.width * 0.04]
+      ] as any]) as any
+      cutters.push(Manifold.revolve(ringOuter, 128))
     }
+    const grooveW = mud ? 0.05 : 0.022
     for (let i = 0; i < count; i++) {
       const a = (i / count) * 360
-      // a thin radial slot across the tread width
-      const slot = Manifold.cube([grooveW, depth * 2.2, width * (mud ? 1.1 : 0.7)], true)
-        .translate([radius, 0, 0])
+      const slot = Manifold.cube([grooveW, depth * 2.2, d.width * (mud ? 1.1 : 0.72)], true)
+        .translate([d.radius, 0, 0])
         .rotate([0, 0, a])
       cutters.push(slot)
     }
-    const cutter = Manifold.union(cutters)
-    tire = tire.subtract(cutter)
+    tire = tire.subtract(Manifold.union(cutters))
   }
-  return manifoldToGeometry(tire)
+  return tire
 }
 
-// ---- RIM (metal) : face plate + cut spoke windows + hub + lug holes + lip.
-function buildRim(params: ParamMap): THREE.BufferGeometry {
-  const { Manifold } = M()
-  const radius = num(params, 'radius')
-  const width = num(params, 'width')
-  const aspect = num(params, 'aspect')
-  const sidewall = width * aspect
-  const rRim = radius - sidewall // outer rim radius (tire bead seat)
-  const halfW = width / 2
-  const spokes = Math.max(3, Math.round(num(params, 'spokes')))
-  const spokeWidth = num(params, 'spokeWidth')
-  const dish = num(params, 'dish')
-  const hubR = num(params, 'hubRadius')
-  const lugs = Math.max(0, Math.round(num(params, 'lugs')))
+// ---- RIM PLACEHOLDER (metal): a plain dished disc that fills to rBead, on the
+// SAME axis as the tire. This is intentionally minimal — Step B replaces it with
+// a rim the USER draws. No fake spoke-count sliders.
+export function buildRimManifold(params: ParamMap): any {
+  const { Manifold, CrossSection } = M()
+  const d = wheelDims(params)
+  const barrelHalf = d.halfW * 0.95
 
-  // Barrel: hollow cylinder that the tire seats on.
-  const barrelOuter = Manifold.cylinder(width * 0.95, rRim, rRim, 96, true).rotate([90, 0, 0])
-  const barrelInner = Manifold.cylinder(width, rRim * 0.9, rRim * 0.9, 96, true).rotate([90, 0, 0])
-  let rim = barrelOuter.subtract(barrelInner)
+  // Barrel: ring wall the tire seats on (revolved rectangle).
+  const barrel = Manifold.revolve(new CrossSection([[
+    [d.rBead * 0.9, -barrelHalf],
+    [d.rBead, -barrelHalf],
+    [d.rBead, barrelHalf],
+    [d.rBead * 0.9, barrelHalf]
+  ] as any]) as any, 96)
 
-  // Face plate (the visible spoke face), dished slightly toward -Z (front).
-  const faceZ = -halfW + Math.max(0.02, halfW - dish)
-  const faceThick = width * 0.22
-  const face = Manifold.cylinder(faceThick, rRim * 0.92, rRim * 0.92, 96, true)
-    .rotate([90, 0, 0])
-    .translate([0, 0, faceZ])
+  // Face disc dished toward the front (-Z), thin.
+  const faceHalf = d.width * 0.09
+  const faceZ = -d.halfW + faceHalf + d.halfW * 0.15
+  const face = Manifold.revolve(new CrossSection([[
+    [0, faceZ - faceHalf],
+    [d.rBead * 0.92, faceZ - faceHalf],
+    [d.rBead * 0.92, faceZ + faceHalf],
+    [0, faceZ + faceHalf]
+  ] as any]) as any, 96)
 
-  // Cut spoke windows: subtract 'spokes' wedge holes, leaving spoke arms.
-  // A window = a rounded slot between two adjacent spokes.
-  const windows: any[] = []
-  const windowSpan = (360 / spokes) * (1 - spokeWidth * 0.6) // gap between spokes
-  const rOuterWin = rRim * 0.86
-  const rInnerWin = hubR + (rRim - hubR) * 0.18
-  const winCount = spokes
-  for (let i = 0; i < winCount; i++) {
-    const a = (i / winCount) * 360 + 360 / winCount / 2
-    // Approximate a tapered window with a cube slot + rounded ends (cylinders).
-    const midR = (rOuterWin + rInnerWin) / 2
-    const len = rOuterWin - rInnerWin
-    const wWide = 2 * midR * Math.sin((windowSpan * Math.PI) / 360)
-    const slot = Manifold.cube([wWide, len, faceThick * 3], true)
-      .translate([0, midR, 0])
-      .rotate([0, 0, a])
-    // rounded outer end
-    const capO = Manifold.cylinder(faceThick * 3, wWide / 2, wWide / 2, 32, true)
-      .translate([0, rOuterWin, 0])
-      .rotate([0, 0, a])
-    const capI = Manifold.cylinder(faceThick * 3, wWide / 2, wWide / 2, 32, true)
-      .translate([0, rInnerWin, 0])
-      .rotate([0, 0, a])
-    windows.push(Manifold.union([slot, capO, capI]))
-  }
-  let faceCut = face
-  if (windows.length) faceCut = face.subtract(Manifold.union(windows))
-
-  rim = Manifold.union([rim, faceCut])
-
-  // Hub center boss
-  const hub = Manifold.cylinder(width * 0.5, hubR, hubR, 48, true)
-    .rotate([90, 0, 0])
-    .translate([0, 0, faceZ])
-  rim = Manifold.union([rim, hub])
-
-  // Lug bolt holes on the hub face
-  if (lugs > 0) {
-    const holes: any[] = []
-    const lugRing = hubR * 0.62
-    for (let i = 0; i < lugs; i++) {
-      const a = (i / lugs) * Math.PI * 2
-      const x = Math.cos(a) * lugRing
-      const y = Math.sin(a) * lugRing
-      holes.push(
-        Manifold.cylinder(width, hubR * 0.16, hubR * 0.16, 20, true)
-          .rotate([90, 0, 0])
-          .translate([x, y, faceZ])
-      )
-    }
-    rim = rim.subtract(Manifold.union(holes))
-  }
-
-  return manifoldToGeometry(rim)
+  return Manifold.union([barrel, face])
 }
 
-// Combine rubber + metal into one geometry with material groups.
-function generate(params: ParamMap): THREE.BufferGeometry {
-  const rubber = buildTire(params)
-  const metal = buildRim(params)
-
-  const rPos = rubber.getAttribute('position').array as Float32Array
-  const mPos = metal.getAttribute('position').array as Float32Array
+// Combine two manifolds into one grouped three.js geometry (rubber + metal).
+function combineToGrouped(rubber: any, metal: any): THREE.BufferGeometry {
+  const gR = manifoldToGeometry(rubber)
+  const gM = manifoldToGeometry(metal)
+  const rPos = gR.getAttribute('position').array as Float32Array
+  const mPos = gM.getAttribute('position').array as Float32Array
   const positions = new Float32Array(rPos.length + mPos.length)
   positions.set(rPos, 0)
   positions.set(mPos, rPos.length)
 
   const combined = new THREE.BufferGeometry()
   combined.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-  // both inputs are indexed; flatten indices with offset
-  const rIdx = rubber.getIndex()!.array as ArrayLike<number>
-  const mIdx = metal.getIndex()!.array as ArrayLike<number>
+  const rIdx = gR.getIndex()!.array as ArrayLike<number>
+  const mIdx = gM.getIndex()!.array as ArrayLike<number>
   const rVertCount = rPos.length / 3
   const indices = new Uint32Array(rIdx.length + mIdx.length)
   for (let i = 0; i < rIdx.length; i++) indices[i] = rIdx[i]
   for (let i = 0; i < mIdx.length; i++) indices[rIdx.length + i] = mIdx[i] + rVertCount
   combined.setIndex(new THREE.BufferAttribute(indices, 1))
   combined.computeVertexNormals()
-
   combined.clearGroups()
   combined.addGroup(0, rIdx.length, WHEEL_GROUP_RUBBER)
   combined.addGroup(rIdx.length, mIdx.length, WHEEL_GROUP_METAL)
-
-  rubber.dispose()
-  metal.dispose()
+  gR.dispose()
+  gM.dispose()
   return combined
+}
+
+function generate(params: ParamMap): THREE.BufferGeometry {
+  return combineToGrouped(buildTireManifold(params), buildRimManifold(params))
 }
 
 export const WheelGenerator: Generator = {
