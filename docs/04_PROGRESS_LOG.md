@@ -1,5 +1,31 @@
-# MeshDraw — Progress Log
+# Clay (codename MeshDraw) — Progress Log
 > Append-only. Newest at top. This is the "what actually happened" ledger.
+
+## 2026-07-14 — Session 4: Milestone 1 (draw→promote→solve→handles) + Milestone 2 (Revolve) + deploy
+**North star (restated by user):** "The object should always be an idea." Every milestone must end with something **visible + interactive**. "WE NEED TO BE ABLE TO DRAW PERIOD NOT CLICK."
+
+**Done — Milestone 1: blank canvas → draw → "I think it's a Wheel 98%" → promote → constraint solver + drag handles**
+- App now **starts empty** (no auto-loaded tire). `#empty-state` overlay ("Draw something") until the first object exists.
+- Draw flow: `beginCanvasDraw()` faces the camera and draws on the new **FRONT** plane (XY, normal +Z) so a screen-circle stays a true circle (fixes GROUND-plane ellipse distortion). `inferCanvas(raw)` → guess → promote card.
+- `promoteToWheel(radius)` seeds the driver `radius` from the drawing. Constraint solver (`solve`) annotates drivers with `affects[]` and appends `derived:true` params; panel renders derived rows + affects chips.
+- Direct-manipulation **blue drag handles** (radius / width / hub) — drag reshapes geometry and updates the panel live.
+- Fixes: sketch overlay no longer intercepts pointer after drawing; `finish()` caches `getBoundingClientRect()` **before** hiding the overlay (hidden canvas returned 0-rect → NaN → no profile).
+- E2E `test/milestone1-flow.mjs` (real chromium): draw circle → promote → drag radius 0.33→0.64, derived rows + affects chips update. **PASS, 0 JS errors.** Committed `65e53ba`.
+- Screenshots purged per user demand; `.gitignore` blocks `test/*.png`. Committed `e8c0acd`.
+- Pushed to GitHub `mkbrown261/clay` (main). Token scrubbed from remote URL (user warned to rotate).
+
+**Done — Milestone 2: draw a SILHOUETTE → revolve into a live watertight solid** (the "draw your own mesh" mission)
+- `client/generators/revolve.ts` — silhouette (raw FRONT-plane stroke) → fold to +X half-plane (x=radius≥0, y=height) → sort by height → cap to axis → CCW cross-section → `Manifold.revolve(new CrossSection([pts]), segments, angle)` → `.rotate([-90,0,0])` to stand upright on +Y. Per-object silhouette Map. Drivers: angle(360), segments(96), scaleR, scaleH, wallSolid.
+- `infer.ts` detects **open+tall** silhouette → Revolve (vs round closed loop → Wheel; unknown falls back to Revolve). Returns raw `silhouette` + `worldProfile`.
+- `scene.promoteToRevolve()`, `REVOLVE_CONSTRAINTS` (derived: sweepFraction, facetAngle), clay ceramic material, **rev-radius / rev-height** drag handles (type-aware via `forTypes`).
+- E2E `test/milestone2-flow.mjs`: draw vase silhouette → "Revolved Form" 97% → promote → **79,872-tri watertight axisymmetric solid**, height 0.881 m → drag rev-radius → scaleR 1→2.09, width 0.484→1.012. **PASS, 0 JS errors.** Committed `64046c5`, pushed to GitHub.
+
+**Deployed** → https://clay-meshdraw.pages.dev (Cloudflare Pages, deploy `17171de8`, wrangler BYOK token). Verified prod serves the new empty-state + silhouette copy; real-browser load clean (0 JS errors).
+- Root cause of "only lets me draw a rim / tire on at startup": prod was **stale** (old Step B build `d23728d3`) — the earlier session's deploys never included Milestones 1–2. This deploy fixes it.
+
+**Security:** user re-pasted GitHub PAT and Cloudflare token (`cfut_…`) in chat — **must rotate both.** Neither committed; CF token used only as an inline env var for one deploy.
+
+**Next** — extrude generator (Milestone 3 candidate), SuperSplat BYO-splat importer, full "Clay" rename across docs.
 
 ## 2026-07-14 — Session 3 (cont.): Step B — the Sketch Engine (DRAW the rim)
 **North-star reframing (user, to revisit after Step B)**
