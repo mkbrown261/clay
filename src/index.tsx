@@ -31,7 +31,7 @@ app.get('/', (c) => {
     <aside id="panel"></aside>
   </main>
   <footer id="hint">Drag to orbit · scroll to zoom · edit any parameter to reshape the wheel live — the mesh is <em>derived</em> from the idea.</footer>
-  <script type="module" src="/static/clay.js"></script>
+  <script type="module" src="/static/clay.js?v=${Date.now()}"></script>
 </body>
 </html>`)
 })

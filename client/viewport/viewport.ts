@@ -15,7 +15,7 @@ export class Viewport {
   orbit: OrbitControls
   transform: TransformControls
   private mesh?: THREE.Mesh
-  private material: THREE.MeshStandardMaterial
+  private materials: THREE.MeshStandardMaterial[]
 
   constructor(private container: HTMLElement) {
     const w = container.clientWidth
@@ -48,12 +48,12 @@ export class Viewport {
     ;(grid.material as THREE.Material).opacity = 0.5
     this.scene.add(grid)
 
-    this.material = new THREE.MeshStandardMaterial({
-      color: 0x8ea2c6,
-      metalness: 0.4,
-      roughness: 0.55,
-      flatShading: false
-    })
+    // Multi-material: [0]=rubber (dark, matte), [1]=metal rim (bright, glossy).
+    // Geometry groups from the wheel generator select which face uses which.
+    this.materials = [
+      new THREE.MeshStandardMaterial({ color: 0x1c1f26, metalness: 0.05, roughness: 0.85 }),
+      new THREE.MeshStandardMaterial({ color: 0xb9c2d0, metalness: 0.9, roughness: 0.3 })
+    ]
 
     this.orbit = new OrbitControls(this.camera, this.renderer.domElement)
     this.orbit.enableDamping = true
@@ -76,14 +76,14 @@ export class Viewport {
   }
 
   setWireframe(on: boolean) {
-    this.material.wireframe = on
+    this.materials.forEach((m) => (m.wireframe = on))
   }
 
   // Build/replace the mesh from the semantic object's generator.
   render(obj: SemanticObject) {
     const geom = getGenerator(obj.type).generate(obj.params)
     if (!this.mesh) {
-      this.mesh = new THREE.Mesh(geom, this.material)
+      this.mesh = new THREE.Mesh(geom, this.materials)
       this.mesh.castShadow = true
       this.mesh.userData.semanticId = obj.id
       this.scene.add(this.mesh)
