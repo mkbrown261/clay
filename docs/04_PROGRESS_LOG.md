@@ -1,6 +1,29 @@
 # Clay (codename MeshDraw) — Progress Log
 > Append-only. Newest at top. This is the "what actually happened" ledger.
 
+## 2026-07-15 — Session 6: Phase 1 — Geometry Intelligence, `analyze_mesh()` (Clay's first "eyes")
+**Strategic outline (user):** "AI reasons, our WASM tools execute, the browser runs it all." Six-phase ship order — Geometry Intelligence → Repair/Optimization → Deformation → Materials → AI Reasoning Layer → Spatial/Generative. Rules: owned-or-free libs only, browser-first (WASM, $0 compute), curated tool set (not raw ops), every phase ends visible+interactive. User directive: build `analyze_mesh()` first (Phase 1) — "one file, browser-only, $0, ~1 day."
+
+**Done — `client/analysis/analyzeMesh.ts`**
+- `analyzeObject(obj)`: pure function, any `extrude` or `revolve` SemanticObject → `MeshAnalysis` report. Two data sources, both already-owned math:
+  1. **manifold-3d's own solid report** (free — same WASM already building the shape): `numTri`, `numVert`, `status()` (watertight ⇔ `'NoError'`), `genus()`, `volume()`, `surfaceArea()`, `boundingBox()`.
+  2. **Original 2D polygon heuristics** on the drawn outline/silhouette itself: mirror-symmetry detection (nearest-neighbour test against the reflected point set, X and Y independently), corner/sharp-feature count (turning-angle non-max-suppression), convexity (consistent cross-product sign test), isoperimetric roundness score (`4π·Area/Perimeter²`, 1.0 = circle).
+  - Revolve objects get a construction shortcut: a full 360° sweep IS symmetric on both axes and its horizontal cross-section IS a circle by definition — reported directly rather than re-derived; corners still come from the drawn SIDE PROFILE (the interesting shape info for a lathe object).
+- `analysisParams(report)`: turns the report into a `ParamMap` (group `'Analysis'`, `derived:true`) — reuses the EXACT mechanism the constraint solver already built for its `'Derived'` group, so the existing contextual panel renders it for free, no new UI code needed beyond a header icon + tag.
+- Wired into `Scene`: every `add()` / `updateParam()` runs `withAnalysis()` automatically; outline-drag (which doesn't go through `updateParam`) calls the new `scene.refreshAnalysis(id)` on drag-end (not every frame — the analysis re-walks the whole outline, so it only runs once the user releases the point).
+- `formatDerived()` extended with the `an_*` key family (tri/vert/corner/genus as integers, watertight/convex as Yes/No, symmetry as a bitmask → "X + Y axis"/"X axis"/"Y axis"/"None detected", volume in L or cm³, area/dimensions in m²/m, roundness as %).
+- Panel: `.analysis-group` styling (green eye icon + "scanned" tag, distinct from the blue "Derived"/"auto" group) in `clay.css`.
+
+**Verified — two new real-browser E2E suites, zero JS errors on both**
+- `test/analyze-mesh-flow.mjs` (extrude/triangle path): draw a triangle → Analysis group renders 13 rows → **3 corners** (exactly right), **watertight=Yes**, **roundness=62%** (correctly low — a triangle is far from a circle), **convex=Yes**, symmetry correctly detects the isoceles triangle's Y-axis mirror line, volume/area sane (47.52 L / 0.87 m²). Drag an outline point inward → analysis **refreshes live**: convex flips to **No** (the drag created a genuine concave notch — correct), roundness drops to 32%, width/height/volume all update. **PASS.**
+- `test/analyze-revolve-flow.mjs` (revolve/vase path): draw a curvy silhouette → 57,600-tri watertight solid → **symmetry = X + Y axis** and **roundness = 100%** (both correct by construction for a full 360° solid of revolution), corners=1 (smooth curvy profile, no sharp features). **PASS.**
+- Regression: existing `test/extrude-flow.mjs` still **PASS**, 0 JS errors — analysis is additive, doesn't touch the geometry pipeline.
+- Build: client 1,550.78 kB / 25 modules (was 24 — +1 for analyzeMesh.ts), no stray chunks; server 23.16 kB.
+
+**Why this first (per the strategic outline):** zero cost, zero risk (pure math, no server/API), and it's the prerequisite for everything downstream — Phase 2 (repair/remesh) needs to know if a mesh is broken to fix it; Phase 5 (AI tool layer) needs `analyze_mesh()` as its first curated tool so the LLM can "look before it acts."
+
+**Next** — Phase 2: `repair_topology`, `remesh`, `smooth`, `decimate` (LODs) — all published/owned algorithms, browser-side, using the analysis report to decide what needs fixing.
+
 ## 2026-07-15 — Session 5: The PIVOT — draw ANY shape, it becomes that exact solid
 **User feedback (the honest miss):** "no matter what shape you draw it almost always just ends up being a circle, it still says draw rim, it's just not intuitive." Correct diagnosis: the app was still secretly a *wheel machine*. Both paths destroyed the drawing — Wheel kept only a radius (fitCircle), and Revolve spins any outline into a rotationally-symmetric (round) solid. There was NO path that just keeps the shape you drew. Plus dead "Draw Rim" scaffolding remained.
 

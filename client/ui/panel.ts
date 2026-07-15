@@ -35,13 +35,19 @@ export function renderPanel(
   for (const [groupName, params] of Object.entries(groups)) {
     if (groupName === '__hidden') continue
     const section = document.createElement('section')
-    section.className = 'param-group' + (groupName === 'Derived' ? ' derived-group' : '')
+    section.className = 'param-group' + (groupName === 'Derived' ? ' derived-group' : '') + (groupName === 'Analysis' ? ' analysis-group' : '')
     const title = document.createElement('h3')
-    title.textContent = groupName
+    title.innerHTML = groupName === 'Analysis' ? '<i class="fa-solid fa-eye"></i> ' + groupName : groupName
     if (groupName === 'Derived') {
       const tag = document.createElement('span')
       tag.className = 'derived-tag'
       tag.textContent = 'auto'
+      title.appendChild(tag)
+    }
+    if (groupName === 'Analysis') {
+      const tag = document.createElement('span')
+      tag.className = 'derived-tag analysis-tag'
+      tag.textContent = 'scanned'
       title.appendChild(tag)
     }
     section.appendChild(title)

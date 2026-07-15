@@ -59,6 +59,7 @@ viewport.onOutlineDrag = (e) => {
 }
 viewport.onOutlineDragEnd = () => {
   const id = viewport.selected
+  if (id) scene.refreshAnalysis(id) // re-run analyze_mesh() on the reshaped drawing
   const obj = id ? scene.get(id) : null
   if (obj) viewport.attachHandles(obj) // rebuild handle rings at new positions
   rebuildPanel()

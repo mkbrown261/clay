@@ -145,6 +145,23 @@ export function solve(type: SemanticType, params: ParamMap): ParamMap {
 
 // Human-friendly formatting for a derived value (mass in kg/g, etc.).
 export function formatDerived(key: string, value: number): string {
+  // ---- analyze_mesh() report rows (client/analysis/analyzeMesh.ts) ----
+  if (key === 'an_tris' || key === 'an_verts' || key === 'an_corners' || key === 'an_genus') {
+    return String(Math.round(value))
+  }
+  if (key === 'an_watertight' || key === 'an_convex') return value ? 'Yes' : 'No'
+  if (key === 'an_symmetry') {
+    const x = (value & 1) !== 0
+    const y = (value & 2) !== 0
+    if (x && y) return 'X + Y axis'
+    if (x) return 'X axis'
+    if (y) return 'Y axis'
+    return 'None detected'
+  }
+  if (key === 'an_volume') return value >= 0.001 ? `${(value * 1000).toFixed(2)} L` : `${(value * 1e6).toFixed(1)} cm³`
+  if (key === 'an_area') return `${value.toFixed(4)} m²`
+  if (key === 'an_width' || key === 'an_height' || key === 'an_depth') return `${value.toFixed(3)} m`
+  if (key === 'an_roundness') return `${Math.round(value * 100)}%`
   if (key === 'approxMass') {
     return value >= 1 ? `${value.toFixed(2)} kg` : `${(value * 1000).toFixed(0)} g`
   }

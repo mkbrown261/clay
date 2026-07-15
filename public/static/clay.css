@@ -204,6 +204,15 @@ body {
 .derived-row label { margin-bottom: 0; color: var(--muted); }
 .derived-value { color: var(--text) !important; font-weight: 600; }
 
+/* ===== Analysis group (analyze_mesh() — Clay's first "eyes") ===== */
+.analysis-group h3 { display: flex; align-items: center; gap: 8px; }
+.analysis-group h3 i { color: #39d98a; }
+.analysis-tag {
+  color: #39d98a !important; background: rgba(57,217,138,.14) !important;
+}
+.analysis-group .derived-row { margin-bottom: 7px; }
+.analysis-group .derived-value { font-size: 12px; }
+
 /* ===== "affects" relationship chips (every driver knows what it affects) ===== */
 .affects {
   margin-top: 7px; font-size: 10.5px; color: var(--muted);

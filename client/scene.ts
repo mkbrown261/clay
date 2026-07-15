@@ -9,6 +9,7 @@ import { getGenerator } from './generators/registry'
 import { setSilhouette, clearSilhouette } from './generators/revolve'
 import { setOutline, clearOutline, moveOutlinePoint } from './generators/extrude'
 import { solve } from './semantic/constraints'
+import { analyzeObject, analysisParams } from './analysis/analyzeMesh'
 import type { Vec2 } from './sketch/stroke'
 import type { Viewport } from './viewport/viewport'
 
@@ -21,9 +22,19 @@ export class Scene {
   }
 
   add(obj: SemanticObject): void {
-    const solved = { ...obj, params: solve(obj.type, obj.params) }
+    const solved = this.withAnalysis({ ...obj, params: solve(obj.type, obj.params) })
     this.objects.push(solved)
     this.viewport.upsert(solved)
+  }
+
+  // Phase 1 "Geometry Intelligence": run analyze_mesh() and fold its report
+  // into the object's params as a read-only "Analysis" group (derived:true),
+  // exactly the same mechanism the constraint solver's derived rows already
+  // use — the panel renders it for free. Pure: never mutates geometry.
+  private withAnalysis(obj: SemanticObject): SemanticObject {
+    const report = analyzeObject(obj)
+    if (!report) return obj
+    return { ...obj, params: { ...obj.params, ...analysisParams(report) } }
   }
 
   remove(id: string): void {
@@ -40,7 +51,7 @@ export class Scene {
     const idx = this.objects.findIndex((o) => o.id === id)
     if (idx < 0) return
     const obj = this.objects[idx]
-    const next = { ...obj, params: solve(obj.type, withParam(obj.params, key, value)) }
+    const next = this.withAnalysis({ ...obj, params: solve(obj.type, withParam(obj.params, key, value)) })
     this.objects[idx] = next
     this.viewport.upsert(next)
   }
@@ -67,6 +78,8 @@ export class Scene {
   }
 
   // Reshape: move one control point of an extrude object's outline, then rebuild.
+  // Analysis is intentionally NOT recomputed on every drag frame (it re-walks
+  // the whole outline) — call refreshAnalysis() once the drag ends instead.
   reshapeOutlinePoint(id: string, index: number, to: Vec2): void {
     const obj = this.get(id)
     if (!obj || obj.type !== 'extrude') return
@@ -74,6 +87,15 @@ export class Scene {
     moveOutlinePoint(oid, index, to)
     // Force a mesh rebuild (params unchanged, but the outline store changed).
     this.viewport.upsert(obj)
+  }
+
+  // Re-run analyze_mesh() for an object and fold the fresh report into its
+  // stored params. Call after a drawing edit (outline drag end) so the panel
+  // reflects the CURRENT shape, not the shape at creation time.
+  refreshAnalysis(id: string): void {
+    const idx = this.objects.findIndex((o) => o.id === id)
+    if (idx < 0) return
+    this.objects[idx] = this.withAnalysis(this.objects[idx])
   }
 
   // ----- OPT-IN MODE: a drawn SIDE PROFILE becomes a solid of revolution -----
