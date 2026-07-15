@@ -87,7 +87,25 @@ export const REVOLVE_CONSTRAINTS: ConstraintSet = {
   ]
 }
 
+// ---- EXTRUDE constraint set ---------------------------------------------------
+// The DEFAULT object: you draw any closed outline and it becomes a solid of that
+// exact shape with thickness. Drivers: depth, bevel, scale, twist. The footprint
+// (width/height/area) comes from the DRAWING, so we surface the relationships the
+// drivers control rather than absolute size (the outline owns that).
+export const EXTRUDE_CONSTRAINTS: ConstraintSet = {
+  affects: {
+    depth: ['approxVolume', 'aspectRatio'],
+    scale: ['footprint', 'approxVolume'],
+    twist: ['twistPerUnit'],
+    bevel: ['edgeSoftness']
+  },
+  derived: [
+    { key: 'twistPerUnit', label: 'Twist / Thickness', unit: 'deg', group: 'Derived', compute: (p) => num(p, 'twist') / Math.max(0.02, num(p, 'depth')) }
+  ]
+}
+
 const SETS: Partial<Record<SemanticType, ConstraintSet>> = {
+  extrude: EXTRUDE_CONSTRAINTS,
   wheel: WHEEL_CONSTRAINTS,
   tire: WHEEL_CONSTRAINTS,
   revolve: REVOLVE_CONSTRAINTS
@@ -134,5 +152,6 @@ export function formatDerived(key: string, value: number): string {
   if (key === 'treadPitch') return `${value.toFixed(2)} cm`
   if (key === 'sweepFraction') return `${Math.round(value * 100)}%`
   if (key === 'facetAngle') return `${value.toFixed(2)}°`
+  if (key === 'twistPerUnit') return `${value.toFixed(1)}°/m`
   return `${value.toFixed(3)} m`
 }

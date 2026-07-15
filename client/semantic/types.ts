@@ -3,10 +3,11 @@
 
 export type SemanticType =
   | 'freeform'
+  | 'extrude'
+  | 'revolve'
   | 'wheel'
   | 'tire'
   | 'rim'
-  | 'revolve'
   | 'box'
   | 'disk'
   | 'sphere'

@@ -1,6 +1,25 @@
 # Clay (codename MeshDraw) — Progress Log
 > Append-only. Newest at top. This is the "what actually happened" ledger.
 
+## 2026-07-15 — Session 5: The PIVOT — draw ANY shape, it becomes that exact solid
+**User feedback (the honest miss):** "no matter what shape you draw it almost always just ends up being a circle, it still says draw rim, it's just not intuitive." Correct diagnosis: the app was still secretly a *wheel machine*. Both paths destroyed the drawing — Wheel kept only a radius (fitCircle), and Revolve spins any outline into a rotationally-symmetric (round) solid. There was NO path that just keeps the shape you drew. Plus dead "Draw Rim" scaffolding remained.
+
+**Decision D-009 (user approved both):** (1) the drawn shape BECOMES the actual object directly — no inference, no promote gate; (2) DELETE the wheel/tire/rim machinery from the app. Default = **Extrude** (your exact outline + thickness). Revolve demoted to an opt-in draw-mode toggle.
+
+**Done — Extrude core ("the geometry IS the drawing")**
+- `client/generators/extrude.ts` — any closed outline → `Manifold.extrude` (depth, optional twist) → recentre on Z. Per-object outline store (`_outlines` Map) with `setOutline/getOutline/clearOutline/moveOutlinePoint`. `normalizedOutline` (centroid-centred, CCW), `outlineBase` (for handles). Drivers: depth, bevel, scale, twist.
+- `client/viewport/outline-handles.ts` — NEW `OutlineHandles`: a ring of **green** draggable control points, one per outline vertex (capped ~48/50). Drag one → `moveOutlinePoint` → mesh rebuilds live. This is "the object is always an idea" made literal — you edit the DRAWING, not a dead mesh. Distinct from blue axis handles.
+- `scene.createExtrude(outline)` + `reshapeOutlinePoint(id,i,to)`. `EXTRUDE_CONSTRAINTS` (derived: twistPerUnit; affects graph). Warm-clay material `0xd9a066`.
+- `handles.ts` — added `ext-depth` (thickness, +Z) and `ext-scale` (footprint, +X) axis handles with `extBase` cache. Viewport routes outline-point drags with top pointer priority over axis handles.
+- `main.ts` rewritten: press Draw → sketch on FRONT plane → the instant you lift the pen it's a solid. NO promote popup, NO inference. Draw-mode toggle Extrude|Revolve in the draw-controls panel.
+
+**Removed (per user):** `client/generators/{wheel,tire,rim}.ts`, `client/sketch/infer.ts`, tests `draw-flow`/`milestone1-flow`/`milestone2-flow` (they tested the deleted wheel/rim/promote-gate flows). No remaining imports. "Draw Rim" button + rim draw-controls gone from `index.tsx`; copy now "draw any closed shape → that exact solid."
+
+**Verified — real-browser E2E** `test/extrude-flow.mjs`: draw a TRIANGLE → instant 2660-tri solid, 0.65×0.57 m footprint, 0.25 m thick (NOT a circle), no promote popup, no Draw Rim button, 50 green control points → drag one → footprint reshapes 0.573→0.723 m. **PASS, 0 JS errors.** Screenshot: drew a 5-point STAR → renders as a real 3D extruded star. Revolve mode toggle still works (73728-tri axisymmetric solid, 0 errors). Client 1,545.56 kB / 23 modules; no stray chunks; server 23.07 kB.
+
+**Next** — bevel/fillet quality pass; maybe multi-shape scenes; SuperSplat BYO-splat importer.
+
+
 ## 2026-07-14 — Session 4: Milestone 1 (draw→promote→solve→handles) + Milestone 2 (Revolve) + deploy
 **North star (restated by user):** "The object should always be an idea." Every milestone must end with something **visible + interactive**. "WE NEED TO BE ABLE TO DRAW PERIOD NOT CLICK."
 

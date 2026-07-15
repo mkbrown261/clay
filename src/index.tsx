@@ -15,10 +15,9 @@ app.get('/', (c) => {
 </head>
 <body>
   <header id="topbar">
-    <div class="brand"><i class="fa-solid fa-cube"></i> Clay <span class="tag">draw → promote → shape</span></div>
+    <div class="brand"><i class="fa-solid fa-cube"></i> Clay <span class="tag">draw → it's a solid → reshape</span></div>
     <div class="toolbar">
-      <button id="tool-draw" class="tool primary" title="Draw a shape on the canvas — Clay will tell you what it thinks it is"><i class="fa-solid fa-pen-nib"></i> Draw</button>
-      <button id="tool-rim" class="tool" title="Draw a spoke/rim on the wheel face"><i class="fa-solid fa-ring"></i> Draw Rim</button>
+      <button id="tool-draw" class="tool primary" title="Draw any closed shape — it becomes that exact shape in 3D"><i class="fa-solid fa-pen-nib"></i> Draw</button>
       <span class="divider"></span>
       <button id="tool-move" class="tool" title="Move (translate gizmo)"><i class="fa-solid fa-up-down-left-right"></i></button>
       <button id="tool-rotate" class="tool" title="Rotate gizmo"><i class="fa-solid fa-rotate"></i></button>
@@ -36,7 +35,7 @@ app.get('/', (c) => {
         <div class="empty-card">
           <div class="empty-icon"><i class="fa-solid fa-pen-nib"></i></div>
           <h2>Draw something.</h2>
-          <p>Sketch a round loop for a <strong>wheel</strong>, or an open <strong>silhouette</strong> (half a vase / bottle / bowl) to spin into a solid. Clay guesses what it is — then you promote it into a live, editable object you can grab and reshape.</p>
+          <p>Sketch <strong>any closed shape</strong> — a star, a heart, a blob, a gear, a letter — and it instantly becomes a real 3D solid of <em>that exact shape</em>. Then drag the <span class="dot-green">green points</span> on the outline to reshape it, and the <span class="dot-blue">blue handles</span> to set thickness. The drawing is always editable — never a dead mesh.</p>
           <button id="empty-draw" class="tool primary"><i class="fa-solid fa-pen-nib"></i> Start drawing</button>
         </div>
       </div>
@@ -44,19 +43,15 @@ app.get('/', (c) => {
       <!-- Promotion prompt: "I think this is a Wheel (98%)" -->
       <div id="promote"></div>
 
-      <!-- Rim drawing controls (shown only while drawing on the wheel face) -->
+      <!-- Draw controls (shown only while drawing): pick how the outline becomes 3D -->
       <div id="draw-controls">
-        <div class="dc-title"><i class="fa-solid fa-pen-nib"></i> Drawing the rim</div>
-        <label class="dc-toggle"><input type="checkbox" id="toggle-repeat" checked /> <span>Radial repeat</span></label>
-        <div class="dc-row" id="repeat-count-row">
-          <span>Repeat count</span>
-          <input type="range" id="repeat-count" min="3" max="12" step="1" value="5" />
-          <span id="repeat-count-val" class="dc-val">5</span>
+        <div class="dc-title"><i class="fa-solid fa-pen-nib"></i> Draw a shape</div>
+        <div class="dc-modes">
+          <button id="mode-extrude" class="tool mode active" title="Keep your exact outline, give it thickness"><i class="fa-solid fa-cube"></i> Extrude</button>
+          <button id="mode-revolve" class="tool mode" title="Spin a side profile into a round solid"><i class="fa-solid fa-wine-bottle"></i> Revolve</button>
         </div>
-        <label class="dc-toggle"><input type="checkbox" id="toggle-infer" checked /> <span>Ask “what are you drawing?”</span></label>
         <div id="draw-guess" class="dc-guess"></div>
         <div class="dc-actions">
-          <button id="draw-finish" class="tool primary"><i class="fa-solid fa-check"></i> Finish</button>
           <button id="draw-cancel" class="tool"><i class="fa-solid fa-xmark"></i> Cancel</button>
         </div>
       </div>
@@ -69,7 +64,7 @@ app.get('/', (c) => {
       <div id="panel"></div>
     </aside>
   </main>
-  <footer id="hint">Draw → Clay guesses → promote to a live object → hover for blue handles → drag to reshape. Every parameter knows what it <em>affects</em>; the mesh is always <em>derived</em>, never final.</footer>
+  <footer id="hint">Draw any closed shape → it instantly becomes that exact solid → drag the <span class="dot-green">green outline points</span> to reshape, the <span class="dot-blue">blue handles</span> for thickness. The drawing is the object; the mesh is always <em>derived</em>, never final.</footer>
   <script type="module" src="/static/clay.js?v=${Date.now()}"></script>
 </body>
 </html>`)

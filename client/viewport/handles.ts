@@ -7,8 +7,9 @@ import * as THREE from 'three'
 import type { SemanticObject } from '../semantic/types'
 import { num } from '../semantic/types'
 import { silhouetteBase } from '../generators/revolve'
+import { outlineBase } from '../generators/extrude'
 
-export type HandleKind = 'radius' | 'width' | 'hub' | 'rev-radius' | 'rev-height'
+export type HandleKind = 'radius' | 'width' | 'hub' | 'rev-radius' | 'rev-height' | 'ext-depth' | 'ext-scale'
 
 export interface HandleDragEvent {
   key: string // param key to update ('radius' | 'width' | 'hubRadius')
@@ -64,6 +65,10 @@ export class Handles {
     // ---- Revolve handles ----
     const revRadius = this.sphere()
     const revHeight = this.sphere()
+    // ---- Extrude handles ----
+    const extDepth = this.sphere()
+    const extScale = this.sphere()
+    extScale.scale.setScalar(0.8)
 
     this.defs = [
       {
@@ -92,6 +97,18 @@ export class Handles {
         kind: 'rev-height', mesh: revHeight, paramKey: 'scaleH', forTypes: ['revolve'], axis: new THREE.Vector3(0, 1, 0),
         place: (o) => new THREE.Vector3(0, this.revBase(o).height * num(o.params, 'scaleH'), 0),
         toValue: (w, o) => Math.abs(w.y) / this.revBase(o).height
+      },
+      // Extrude: thickness (drag +Z = thicker). Handle sits on the front face.
+      {
+        kind: 'ext-depth', mesh: extDepth, paramKey: 'depth', forTypes: ['extrude'], axis: new THREE.Vector3(0, 0, 1),
+        place: (o) => new THREE.Vector3(0, 0, num(o.params, 'depth') / 2),
+        toValue: (w) => Math.abs(w.z) * 2
+      },
+      // Extrude: uniform scale (drag +X = bigger footprint).
+      {
+        kind: 'ext-scale', mesh: extScale, paramKey: 'scale', forTypes: ['extrude'], axis: new THREE.Vector3(1, 0, 0),
+        place: (o) => new THREE.Vector3(this.extBase(o).halfW * num(o.params, 'scale'), 0, num(o.params, 'depth') / 2 + 0.001),
+        toValue: (w, o) => Math.abs(w.x) / this.extBase(o).halfW
       }
     ]
     for (const d of this.defs) this.group.add(d.mesh)
@@ -107,11 +124,22 @@ export class Handles {
     return this.baseCache
   }
 
-  // Wheels/tires and revolves expose (different) handles.
+  // Cache the base outline extent per object id (recomputed on attach).
+  private extCache: { id: string; halfW: number; halfH: number } | null = null
+  private extBase(o: SemanticObject): { halfW: number; halfH: number } {
+    if (this.extCache && this.extCache.id === o.id) return this.extCache
+    const id = String(o.params['_objectId']?.value ?? o.id)
+    const base = outlineBase(id)
+    this.extCache = { id: o.id, ...base }
+    return this.extCache
+  }
+
+  // Extrude, revolve, wheels/tires each expose their own handles.
   attach(obj: SemanticObject | null) {
-    const supported = obj && (obj.type === 'tire' || obj.type === 'wheel' || obj.type === 'revolve')
+    const supported = obj && (obj.type === 'tire' || obj.type === 'wheel' || obj.type === 'revolve' || obj.type === 'extrude')
     this.obj = supported ? obj : null
     this.baseCache = null
+    this.extCache = null
     this.group.visible = !!this.obj
     if (this.obj) this.reposition()
   }

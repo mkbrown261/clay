@@ -8,6 +8,7 @@ import { TransformControls } from 'three/examples/jsm/controls/TransformControls
 import type { SemanticObject } from '../semantic/types'
 import { getGenerator } from '../generators/registry'
 import { Handles, type HandleDragEvent } from './handles'
+import { OutlineHandles, type OutlinePointDragEvent } from './outline-handles'
 
 export type GizmoMode = 'translate' | 'rotate' | 'scale'
 
@@ -26,9 +27,12 @@ export class Viewport {
   private selectedId: string | null = null
   private wire = false
   handles!: Handles
+  outlineHandles!: OutlineHandles
   onSelect?: (id: string | null) => void
   onHandleDrag?: (e: HandleDragEvent) => void
   onHandleDragEnd?: () => void
+  onOutlineDrag?: (e: OutlinePointDragEvent) => void
+  onOutlineDragEnd?: () => void
 
   constructor(private container: HTMLElement) {
     const w = container.clientWidth
@@ -70,21 +74,30 @@ export class Viewport {
       this.orbit.enabled = !e.value
     })
 
-    // Direct-manipulation handles (blue grab points).
+    // Direct-manipulation handles (blue axis grab points: depth/scale/radius…).
     this.handles = new Handles(this.camera, this.renderer.domElement)
     this.scene.add(this.handles.group)
     this.handles.onDrag = (e) => this.onHandleDrag?.(e)
     this.handles.onDragEnd = () => this.onHandleDragEnd?.()
 
-    // Pointer priority: handles > select. Orbit is suppressed while a handle drags.
+    // Outline control-point handles (green points: reshape the drawn outline).
+    this.outlineHandles = new OutlineHandles(this.camera, this.renderer.domElement)
+    this.scene.add(this.outlineHandles.group)
+    this.outlineHandles.onDrag = (e) => this.onOutlineDrag?.(e)
+    this.outlineHandles.onDragEnd = () => this.onOutlineDragEnd?.()
+
+    // Pointer priority: outline points > axis handles > select.
+    // Orbit is suppressed while any handle drags.
     const dom = this.renderer.domElement
     dom.addEventListener('pointerdown', this.onPointerDown)
     dom.addEventListener('pointermove', (e) => {
-      this.handles.onPointerMove(e)
-      if (this.handles.isDragging) this.orbit.enabled = false
+      this.outlineHandles.onPointerMove(e)
+      if (!this.outlineHandles.isDragging) this.handles.onPointerMove(e)
+      if (this.handles.isDragging || this.outlineHandles.isDragging) this.orbit.enabled = false
     })
     dom.addEventListener('pointerup', () => {
-      const wasDragging = this.handles.isDragging
+      const wasDragging = this.handles.isDragging || this.outlineHandles.isDragging
+      this.outlineHandles.onPointerUp()
       this.handles.onPointerUp()
       if (wasDragging) this.orbit.enabled = true
     })
@@ -104,6 +117,10 @@ export class Viewport {
     if (type === 'revolve') {
       // A clay-like ceramic material — this is "Clay", after all.
       return [new THREE.MeshStandardMaterial({ color: 0xc9a58b, metalness: 0.0, roughness: 0.7 })]
+    }
+    if (type === 'extrude') {
+      // Warm clay — the default drawn object. Slight sheen so facets read well.
+      return [new THREE.MeshStandardMaterial({ color: 0xd9a066, metalness: 0.05, roughness: 0.55 })]
     }
     // wheel = combined groups (rubber + metal)
     return [
@@ -169,9 +186,11 @@ export class Viewport {
   // Attach the drag-handles to a semantic object (or null to hide).
   attachHandles(obj: SemanticObject | null) {
     this.handles.attach(obj)
+    this.outlineHandles.attach(obj)
   }
   repositionHandles() {
     this.handles.reposition()
+    this.outlineHandles.reposition()
   }
 
   get selected(): string | null {
@@ -190,7 +209,12 @@ export class Viewport {
   }
 
   private onPointerDown = (ev: PointerEvent) => {
-    // Handles take priority — if one is grabbed, suppress orbit + selection.
+    // Outline control points take top priority (reshape the drawing itself).
+    if (this.outlineHandles.onPointerDown(ev)) {
+      this.orbit.enabled = false
+      return
+    }
+    // Axis handles next — if one is grabbed, suppress orbit + selection.
     if (this.handles.onPointerDown(ev)) {
       this.orbit.enabled = false
       return

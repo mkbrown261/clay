@@ -96,6 +96,16 @@ body {
 }
 .dc-actions { display: flex; gap: 8px; margin-top: 2px; }
 .dc-actions .tool { flex: 1; text-align: center; }
+.dc-modes { display: flex; gap: 8px; }
+.dc-modes .tool.mode { flex: 1; justify-content: center; opacity: 0.7; }
+.dc-modes .tool.mode.active {
+  opacity: 1; border-color: var(--accent);
+  background: rgba(91,140,255,.16); color: var(--text);
+}
+/* inline colour dots used in the empty-state copy */
+.dot-green, .dot-blue { font-weight: 700; white-space: nowrap; }
+.dot-green { color: #39d98a; }
+.dot-blue { color: #5b8cff; }
 .panel-header { margin-bottom: 8px; }
 .panel-header h2 { margin: 6px 0 0; font-size: 20px; }
 .type-badge {
